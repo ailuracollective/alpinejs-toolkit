@@ -59,6 +59,9 @@
     "alpinejs": "^3.0.0",
     "embla-carousel": "^8.0.0"
   },
+  "engines": {
+    "node": ">=22"
+  },
   "toolkit": {
     "bundleBudget": {
       "category": "small-feature"

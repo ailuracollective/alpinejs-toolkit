@@ -57,5 +57,8 @@
     "@ailura/alpinejs-state-machine": "workspace:*",
     "@ailura/alpinejs-ui": "workspace:*",
     "alpinejs": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
