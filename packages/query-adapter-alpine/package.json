@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-query-adapter-alpine",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Alpine reactive adapter for @ailura/alpinejs-query — Alpine.reactive backed QueryStateAdapter.",
   "keywords": [
     "adapter",

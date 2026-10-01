@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-media",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Alpine.js responsive media controller with breakpoints and motion preferences on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",

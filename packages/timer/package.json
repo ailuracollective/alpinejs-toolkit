@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-timer",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Alpine.js timer magic with countdown, countup, stopwatch presets backed by drift-resistant engine on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",

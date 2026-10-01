@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-state-machine",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "N-state sync machine for Alpine.js: transition graph, sync guards, and a reactive $machine magic.",
   "keywords": [
     "alpine",

@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-keyboard",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Alpine.js headless scoped keyboard shortcut registry with chords, sequences, conflict resolution on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",

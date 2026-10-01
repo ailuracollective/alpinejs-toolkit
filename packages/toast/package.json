@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-toast",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Alpine.js toast queue with Alpine store — queue, positions, variants, and auto-dismiss on @ailura/alpinejs-core and @ailura/alpinejs-ui portal.",
   "keywords": [
     "alpine",

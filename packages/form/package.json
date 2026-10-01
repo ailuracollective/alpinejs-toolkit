@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-form",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Alpine.js headless form state and validation controller — fields, validation, errors on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",

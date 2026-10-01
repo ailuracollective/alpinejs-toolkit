@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-collection",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Alpine.js collection controller — filtering, sorting, grouping, pagination and active-item navigation on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",

@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-accordion",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Alpine.js headless accessible accordion store — single/multiple modes, defaultOpen, roving tabindex, arrow-key navigation and ARIA helpers on @ailura/alpinejs-core. Moves state, not focus.",
   "keywords": [
     "accessibility",

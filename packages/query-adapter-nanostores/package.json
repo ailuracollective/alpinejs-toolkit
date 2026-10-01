@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-query-adapter-nanostores",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Nanostores state adapter for @ailura/alpinejs-query — a nanostores atom per QueryStateAdapter handle.",
   "keywords": [
     "adapter",

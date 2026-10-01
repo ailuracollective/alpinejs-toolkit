@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-child",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Alpine.js x-child directive — asChild-style attribute transfer to first child element on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",
