@@ -1,0 +1,125 @@
+---
+/**
+ * Makes the doc-page view transitions work with `@six-tech/starlight-theme-six`.
+ *
+ * Two independent problems, both caused by the theme replacing Starlight's
+ * default components.
+ *
+ * 1. astro-vtbot's own `StarlightConnector` looks for `div.main-frame`,
+ *    `nav.sidebar .sidebar-content` and a `starlight-menu-button`. This theme
+ *    replaces `PageFrame`, `Sidebar` and `Header`, so none of those exist and
+ *    the connector silently does nothing.
+ *
+ *    That matters because `ReplacementSwap` replaces *only* elements tagged
+ *    `data-vtbot-replace`. Normally the connector applies those tags. With no
+ *    tags of our own, the swap is left to whatever tag happens to exist on both
+ *    pages — vtbot's language-selector tag — so the URL changes while the page
+ *    body stays stale. Hence the explicit tagging below.
+ *
+ * 2. The theme renders the current-page marker server-side, inside a sidebar
+ *    that deliberately outlives the swap, so that marker has to be moved by
+ *    hand after each navigation.
+ *
+ * Scope: only ever runs on doc pages. The home page renders no router at all
+ * (see `Head.astro`), so the splash template's very different markup — no
+ * sidebar, no table of contents — is never swapped against a doc page.
+ */
+interface Props {
+	/** Locale-aware path of the home page, e.g. `/` or `/es/`. */
+	homePath: string;
+}
+
+const { homePath } = Astro.props;
+---
+
+{/*
+  `homePath` travels as a data attribute rather than through `define:vars`.
+
+  `define:vars` forces Astro to emit this as a *classic* inline script, which
+  runs synchronously while the `<head>` is still being parsed — before `<body>`
+  exists. The initial `tagContent(document)` call would then find no
+  `main.main`, leave the page untagged, and every doc-to-doc navigation would
+  change the URL without ever replacing the content. A bundled module is
+  deferred instead, so the DOM is there by the time this runs.
+*/}
+<div data-doc-nav-compat hidden data-home-path={homePath}></div>
+
+<script>
+	const CONTENT = 'main.main';
+	const SIDEBAR = 'aside.aside';
+	const root = document.querySelector('[data-doc-nav-compat]');
+	const homePath = root?.getAttribute('data-home-path') ?? '/';
+
+	/**
+	 * Tag this theme's content root so `ReplacementSwap` will swap it.
+	 *
+	 * Both sides of a navigation must be tagged: the swap only replaces names
+	 * present in *both* documents. Tagging just the incoming page is not enough
+	 * and is actively harmful, since the language-selector tag keeps that
+	 * intersection non-empty and the content would then be left behind.
+	 */
+	function tagContent(doc: Document) {
+		doc.querySelector(CONTENT)?.setAttribute('data-vtbot-replace', 'main');
+	}
+
+	/** Re-apply the current-page marker in the sidebar that survived the swap. */
+	function markCurrentSidebarEntry() {
+		const links = [...document.querySelectorAll<HTMLAnchorElement>(`${SIDEBAR} a`)];
+		if (links.length === 0) return;
+
+		const current = new URL(location.href).pathname.replace(/\/$/, '') || '/';
+		const match = links.find((a) => {
+			const href = new URL(a.href).pathname.replace(/\/$/, '') || '/';
+			return href === current;
+		});
+
+		for (const a of links) a.setAttribute('aria-current', a === match ? 'page' : 'false');
+		match?.closest('.container-sidebar-entry')?.classList.remove('collapsed');
+	}
+
+	// The page we are already on has to be tagged before it can act as the
+	// "old" side of the first navigation.
+	tagContent(document);
+	markCurrentSidebarEntry();
+
+	document.addEventListener('astro:before-preparation', (event) => {
+		// `event.newDocument` only exists once the loader has run, and the swap
+		// reads the tags during `astro:before-swap`, so tag from in there.
+		const load = event.loader;
+		event.loader = async () => {
+			await load();
+			tagContent(event.newDocument);
+		};
+	});
+
+	document.addEventListener('astro:after-swap', () => {
+		markCurrentSidebarEntry();
+
+		// Close the mobile drawer, a popover in this theme, so it does not stay
+		// open over the page that was just navigated to.
+		const drawer = document.querySelector<HTMLElement>('#drawer');
+		if (drawer?.matches(':popover-open')) drawer.hidePopover();
+	});
+
+	/*
+	  Leave for the home page with a real page load.
+
+	  Doc pages carry the router, so a click on the site title or the sidebar's
+	  home entry would otherwise be intercepted and soft-navigated. The home page
+	  has no router, and it has a different page structure, so a full load is both
+	  simpler and correct. `data-astro-reload` is Astro's own opt-out for this.
+	*/
+	document.addEventListener('click', (event) => {
+		const target = event.target;
+		if (!(target instanceof Element)) return;
+		const link = target.closest<HTMLAnchorElement>('a[href]');
+		if (!link || link.hasAttribute('data-astro-reload')) return;
+
+		const url = new URL(link.href, location.href);
+		if (url.origin !== location.origin) return;
+		if ((url.pathname.replace(/\/$/, '') || '/') !== homePath.replace(/\/$/, '')) return;
+
+		link.setAttribute('data-astro-reload', '');
+		link.click();
+	});
+</script>

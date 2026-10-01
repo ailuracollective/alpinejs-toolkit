@@ -1,0 +1,223 @@
+name: publish
+
+# Publishes exactly one package per run. The trigger is the GitHub Release that `release-please.yml`
+# creates, so the tag arrives directly on the event and needs no lookup.
+#
+# This used to be a `repository_dispatch` from the release workflow, chosen so that publication
+# would work on `GITHUB_TOKEN` alone. It never fired: the dispatch call returned success and
+# `repository_dispatch` produced zero runs across the whole repository. Since `RELEASE_PLEASE_TOKEN`
+# now exists and release-please runs as `AiluraKitty`, `release: published` works directly and is
+# one step shorter. A `GITHUB_TOKEN`-created release cannot fire it, which is exactly the constraint
+# that motivated the indirection in the first place — so this trigger now depends on that token.
+#
+# One package per run, not one per batch: npm publication is the one irreversible step in this
+# repository, and a run that owns exactly one version can be guarded, retried and audited without
+# reasoning about several.
+on:
+  release:
+    types: [published]
+
+# Keyed on the tag name, so two different packages never block each other, and the same package can
+# never be published twice concurrently. Deliberately not cancellable: a second run of the same tag
+# is either a duplicate release publication or a re-run of a failed one, and killing the first mid
+# publish would leave the registry with a version that is half uploaded and unattributable, which no
+# later run can repair. Losing the second run is always cheaper than losing the first.
+concurrency:
+  group: publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # The only `permissions` block in this file, and it has to be at the job: job permissions
+    # REPLACE the workflow-level set rather than merging with it, so a workflow-level block here
+    # would apply to no job at all and would read like a grant that never takes effect.
+    # `contents: read` is what the job needs to check out the tag and to read the releases API
+    # while resolving it. `id-token: write` is what npm provenance signs with: the registry
+    # verifies the OIDC token against the workflow file and the repository, so no long-lived npm
+    # secret is trusted to make the attestation claim. That token is requested at the exact moment
+    # of publish, never stored.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # `ref` is the tag, not the branch that was current when the workflow started: the published
+      # version must be built from the exact commit the tag points at, and the checkout that
+      # produces is detached, which is why the publish step below disables pnpm's git checks.
+      #
+      # Checkout first, and it has to be first: this job's whole purpose is to resolve a release
+      # tag, so nothing can be done before the tag's tree exists on disk.
+      #
+      # The bootstrap lives HERE rather than in `.github/actions/setup-workspace`, which `ci.yml` uses,
+
+      # The bootstrap lives HERE rather than in `.github/actions/setup-workspace`, which `ci.yml` uses,
+      # and that is a deliberate exception to "one bootstrap, one place".
+      #
+      # This job checks out the release TAG, so a local `uses: ./path` would be resolved against
+      # the tag's tree — and the 38 existing `v0.1.1` tags point at `9e51c1c`, which predates the
+      # composite action. Every re-publication attempt would die at that step with "Can't find
+      # 'action.yml'", before ever reaching the tag resolver this job exists to run.
+      #
+      # So this workflow must be able to publish ANY tag, including tags cut before it was written.
+      # `ci.yml` has no such constraint: it always checks out the ref that triggered the run, which
+      # by definition contains the action. Inlining the bootstrap here is what buys that.
+      #
+      # `registry-url` is npmjs, so `actions/setup-node` writes an auth line for it into the
+      # runner's user-level `.npmrc`. Only the publish step consumes it, and it consumes it through
+      # `NODE_AUTH_TOKEN` rather than by reading that file.
+      #
+      # No `version:` input on pnpm: `packageManager` in the root package.json is the only place
+      # the pnpm version is written down, and the lockfile is only installable by that version.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Required, not optional. `pnpm publish` does not build: pnpm 12 implements publish natively
+      # and never shells out to the npm CLI, and the only lifecycle hook it runs is `prepack`. No
+      # package in this repository defines one. Without this step `dist/` would be empty and the
+      # published tarball would contain no build output at all, and the guard below would stop it.
+      # `pnpm run build`, not a bare `vp`: `vp` is a root devDependency, so its binary is in
+      # `node_modules/.bin` and only `pnpm run` puts that on the PATH of a `run:` step.
+      - run: pnpm run build
+
+      # Resolves the tag to a package directory and a version, and refuses to publish anything it
+      # cannot fully corroborate. Every failure here is a hard stop: publishing a wrong package, a
+      # wrong version, or an empty tarball is not recoverable from npm, so a stopped run is cheap.
+      - id: resolve
+        name: Resolve package from release tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          # Tags look like `alpinejs-toast@v0.2.0`, NOT `@ailura/alpinejs-toast@v0.2.0`: the scope
+          # is stripped when release-please builds the component, which the loop below explains.
+          # The component is everything before the last `@`, which is the separator the config's
+          # `tag-separator` puts there. The version is everything after the last `v`, which the
+          # config's `v` prefix adds.
+          component="${TAG%@*}"
+          version="${TAG##*@v}"
+
+          if [ "$component" = "$TAG" ] || [ "$version" = "$TAG" ] || [ -z "$component" ] || [ -z "$version" ]; then
+            echo "::error::Tag '$TAG' is not of the form <package>@v<version>."
+            exit 1
+          fi
+
+          # The directory is resolved by matching the `name` field of each candidate package.json,
+          # never by stripping the `@ailura/alpinejs-` prefix off the component. That string surgery
+          # would silently accept any tag naming a package that does not exist, and it hardcodes the
+          # scope here where it does not belong — and it would look plausible while matching
+          # nothing, which is how every publish run before this fix failed.
+          # The set of directories `release-please-config.json` actually releases. This is the authoritative
+          # answer to "which packages does this repository publish", and it is narrower than the set
+          # of directories under `packages/`: `packages/testing` is private and
+          # `packages/plugin-template` is a scaffold that is never published.
+          #
+          # The filter below is deliberately NOT the only thing keeping the scaffold out. npm's
+          # refusal of a `private: true` package covers `testing`, but `plugin-template` carries no
+          # `private` field at all, so nothing at the registry stops it. A hand-created release
+          # named `alpinejs-plugin-template@v0.1.0` satisfies the version guard and the build guard
+          # and would be published to npm. release-please would never cut that tag, so reaching it
+          # takes someone with release-creation rights — which is exactly the kind of accident a
+          # guard exists to make impossible rather than merely unlikely.
+          #
+          # If the config is missing or malformed this is empty, so every candidate is skipped and
+          # the run stops. Failing closed is the right direction: nothing published beats something
+          # published by accident.
+          released="$(node -p 'Object.keys(require("./release-please-config.json").packages || {}).join("\n")')"
+
+          dir=""
+          name=""
+          for manifest in packages/*/package.json; do
+            candidate="${manifest%/package.json}"
+            printf '%s\n' "$released" | grep -qx -- "$candidate" || continue
+
+            pkg="$(node -p "require('./$manifest').name")"
+            # The tag component is NOT the `name` field. release-please's Node strategy strips the
+            # npm scope when it builds the tag component: `normalizeComponent` in
+            # `src/strategies/node.ts` replaces a leading `@scope/` with the bare package name.
+            # With `include-component-in-tag: true` and `tag-separator: "@"`, the package
+            # `@ailura/alpinejs-accordion` is therefore tagged `alpinejs-accordion@v0.1.1`, and
+            # every tag in this repository is shaped that way.
+            #
+            # Both forms are accepted, and nothing else. The comparison is exact on either side,
+            # so no package name can match another's tag: `alpinejs-query` and
+            # `alpinejs-query-adapter-alpine` stay distinct.
+            if [ "$pkg" = "$component" ] || [ "${pkg#*/}" = "$component" ]; then
+              dir="$candidate"
+              name="$pkg"
+              break
+            fi
+          done
+
+          # Guard 1: no directory carries this name. The tag came from outside this checkout, so an
+          # unmatched component means the release does not describe a package in this repository.
+          if [ -z "$dir" ]; then
+            echo "::error::No directory under packages/ publishes as '$component'."
+            exit 1
+          fi
+
+          # Guard 2: the tag version and the manifest version must agree. release-please writes both
+          # in the same commit, so a mismatch means the tag was moved, or was cut from a different
+          # commit, and publishing would push a version that the source tree does not claim.
+          manifest_version="$(node -p "require('./$dir/package.json').version")"
+          if [ "$manifest_version" != "$version" ]; then
+            echo "::error::Tag '$TAG' says $version but $dir/package.json says $manifest_version."
+            exit 1
+          fi
+
+          # Guard 3: the build produced nothing. `pnpm publish` packs whatever is in the directory,
+          # and `dist/` is gitignored, so an empty or absent `dist/` yields a tarball that installs
+          # and then fails at import. Failing here instead leaves an unpublished, obviously broken
+          # release that can be re-cut.
+          if [ -z "$(ls -A "$dir/dist" 2>/dev/null)" ]; then
+            echo "::error::'$dir/dist' is missing or empty; the build step produced no output."
+            exit 1
+          fi
+
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          # The manifest's own `name`, never the tag component: the publish step filters pnpm by
+          # this value, and a selector matching zero projects is not an error.
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Resolved '$TAG' to $dir at $version."
+
+      - name: Publish ${{ steps.resolve.outputs.dir }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # A prerelease must never take the `latest` dist-tag: that is the tag every consumer's
+          # default install resolves, so publishing a pre-release there would hand it to everyone
+          # unpinned. `next` is the conventional dist-tag for this, and only on a prerelease.
+          PUBLISH_ARGS: ${{ github.event.release.prerelease && '--tag next' || '' }}
+        run: |
+          # The filter takes the package NAME, never the directory path. A pnpm filter that matches
+          # nothing is not an error: `pnpm publish --filter packages/toast` selects zero projects,
+          # prints nothing and exits 0, so a path-shaped selector would turn this into a green run
+          # that publishes nothing at all. pnpm only accepts a path selector with a `./` prefix.
+          args=(--filter "${{ steps.resolve.outputs.name }}"
+                --access public
+                --no-git-checks
+                --provenance)
+          if [ -n "$PUBLISH_ARGS" ]; then
+            args+=($PUBLISH_ARGS)
+          fi
+          pnpm publish "${args[@]}"
+
+      # A publish that needs a human to correlate it back to the repository is a publish nobody
+      # will audit later.
+      - name: Summary
+        run: |
+          echo "### Published ${{ steps.resolve.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Package: \`${{ steps.resolve.outputs.dir }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version: \`${{ steps.resolve.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: \`${{ github.event.release.tag_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Prerelease: \`${{ github.event.release.prerelease }}\`" >> "$GITHUB_STEP_SUMMARY"

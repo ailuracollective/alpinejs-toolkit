@@ -1,0 +1,11 @@
+[
+  {
+    "name": "query-adapter-alpine full surface",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "3 kB",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core", "@ailura/alpinejs-query"],
+    "gzip": true,
+    "brotli": true
+  }
+]

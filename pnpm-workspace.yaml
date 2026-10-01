@@ -1,0 +1,8 @@
+packages:
+  - packages/*
+  - apps/*
+
+# esbuild's postinstall validates its platform binary. It is required by
+# size-limit (measurement bundling) and the Vite+ toolchain.
+allowBuilds:
+  esbuild: true

@@ -1,0 +1,119 @@
+[
+  {
+    "name": "core barrel",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "2.4 kB",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "core ./bridge",
+    "path": "dist/bridge.mjs",
+    "import": "*",
+    "limit": "750 B",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "core ./controller",
+    "path": "dist/controller.mjs",
+    "import": "*",
+    "limit": "630 B",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "core ./directives",
+    "path": "dist/directives.mjs",
+    "import": "*",
+    "limit": "1.5 kB",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "core ./env",
+    "path": "dist/env.mjs",
+    "import": "*",
+    "limit": "240 B",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "core ./errors",
+    "path": "dist/errors.mjs",
+    "import": "*",
+    "limit": "350 B",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "core ./guards",
+    "path": "dist/guards.mjs",
+    "import": "*",
+    "limit": "580 B",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "core ./ids",
+    "path": "dist/ids.mjs",
+    "import": "*",
+    "limit": "180 B",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "core ./singletons",
+    "path": "dist/singletons.mjs",
+    "import": "*",
+    "limit": "350 B",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "core ./sync",
+    "path": "dist/sync.mjs",
+    "import": "*",
+    "limit": "180 B",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "core ./invariant",
+    "path": "dist/invariant.mjs",
+    "import": "*",
+    "limit": "200 B",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "core ./constants",
+    "path": "dist/constants.mjs",
+    "import": "*",
+    "limit": "260 B",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "core ./registration",
+    "path": "dist/registration.mjs",
+    "import": "*",
+    "limit": "220 B",
+    "ignore": ["alpinejs"],
+    "gzip": true,
+    "brotli": true
+  }
+]

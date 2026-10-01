@@ -1,0 +1,139 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("geo")!;
+
+// `geo` registers a STORE, not a magic. Everything goes through `$store.geo`.
+const STORE_CODE = `<!-- Careful: \`$store.geo\`, not \`$geo\`. The package registers a store. -->
+<p x-show="!$store.geo.isSupported" x-cloak>Geolocation is not available in this browser.</p>
+
+<template x-if="$store.geo.isSupported">
+  <div>
+    <!-- request() returns Promise<boolean>: it does not throw on a denied
+         permission, it reports it in \`error\`/\`errorCode\` and resolves false. -->
+    <button @click="$store.geo.request({ enableHighAccuracy: true, timeout: 10000 })"
+            :disabled="$store.geo.isLoading">request()</button>
+
+    <!-- watch() is ONE subscription: it returns false if you are already
+         watching, instead of silently replacing the previous one. -->
+    <button @click="$store.geo.watch()">watch()</button>
+    <button @click="$store.geo.unwatch()">unwatch()</button>
+    <button @click="$store.geo.reset()">reset()</button>
+
+    <ul>
+      <li>Lat: <strong x-text="$store.geo.latitude?.toFixed(4)"></strong>
+          · Lng: <strong x-text="$store.geo.longitude?.toFixed(4)"></strong></li>
+      <li>Accuracy: ±<strong x-text="Math.round($store.geo.accuracy ?? 0)"></strong> m</li>
+      <!-- altitude/speed/heading are null when the device does not report
+           them. They are compared against null instead of using truthiness. -->
+      <li x-show="$store.geo.altitude !== null">Altitude: <strong x-text="$store.geo.altitude?.toFixed(1)"></strong> m</li>
+      <li x-show="$store.geo.speed !== null">Speed: <strong x-text="$store.geo.speed?.toFixed(1)"></strong> m/s</li>
+    </ul>
+
+    <p x-show="$store.geo.hasError">
+      <strong x-text="$store.geo.error"></strong>
+      <span x-show="$store.geo.errorCode !== null"> (code <span x-text="$store.geo.errorCode"></span>)</span>
+    </p>
+  </div>
+</template>`;
+
+const SUPPORTED_CODE = `<!-- isSupported is LATCHED in the controller's constructor, not probed
+     per call: it answers "can this document geolocate at all".
+     A denied permission does NOT set it to false — that is what error and
+     errorCode are for, and they are 1 (PERMISSION_DENIED). -->
+<template x-if="$store.geo.isSupported">…</template>`;
+
+const LIFECYCLE_CODE = `<!-- Three states that used to be confused with a single one:
+     \`isLoading\` comes from an emit("loading") the store projects (without it
+     the "Locating…" label was unreachable), \`isWatching\` reflects the
+     watchPosition subscription, and \`hasPosition\` is true when there is
+     both a latitude and a longitude. -->
+<button @click="$store.geo.request()"
+        x-bind:disabled="$store.geo.isLoading">
+  <span x-text="$store.geo.isLoading ? 'Locating…' : 'request()'"></span>
+</button>
+
+<!-- watch() and unwatch() take turns based on their state. Careful: request(),
+     watch(), unwatch() and reset() have NO destroyed-phase guard: after a
+     destroy() they are still valid calls on the same store. -->
+<button x-show="!$store.geo.isWatching" x-cloak @click="$store.geo.watch()">watch()</button>
+<button x-show="$store.geo.isWatching" x-cloak @click="$store.geo.unwatch()">unwatch()</button>`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="One store, three ways to get a position"
+		note="request() is a single fix, watch() is a subscription and unwatch() stops it. All three are the same store: $store.geo, not a $geo magic, and none of them throws on a denied permission — they report it through error and errorCode, with code 1 meaning PERMISSION_DENIED."
+		open
+		code={STORE_CODE}
+	>
+		<p class="text-sm text-[var(--ios-label-secondary)]" x-show="!$store.geo.isSupported" x-cloak>
+			Geolocation is not available in this browser.
+		</p>
+		<template x-if="$store.geo.isSupported">
+			<div>
+				<div class="flex flex-wrap gap-2 mt-1">
+					<DemoButton @click="$store.geo.request({ enableHighAccuracy: true, timeout: 10000 })" x-bind:disabled="$store.geo.isLoading" data-testid="geo-request">
+						<span x-text="$store.geo.isLoading ? 'Locating…' : 'request()'"></span>
+					</DemoButton>
+					<DemoButton x-show="!$store.geo.isWatching" x-cloak @click="$store.geo.watch()">watch()</DemoButton>
+					<DemoButton x-show="$store.geo.isWatching" x-cloak @click="$store.geo.unwatch()">unwatch()</DemoButton>
+					<DemoButton @click="$store.geo.reset()">reset()</DemoButton>
+				</div>
+				<ul class="list-disc list-inside space-y-1 text-sm mt-3" x-show="$store.geo.hasPosition" x-cloak>
+					<li>Lat: <strong x-text="$store.geo.latitude?.toFixed(4)"></strong> · Lng: <strong x-text="$store.geo.longitude?.toFixed(4)"></strong></li>
+					<li>Accuracy: ±<strong x-text="Math.round($store.geo.accuracy ?? 0)"></strong> m</li>
+					<li x-show="$store.geo.altitude !== null" x-cloak>Altitude: <strong x-text="$store.geo.altitude?.toFixed(1)"></strong> m</li>
+					<li x-show="$store.geo.speed !== null" x-cloak>Speed: <strong x-text="$store.geo.speed?.toFixed(1)"></strong> m/s</li>
+				</ul>
+				<p class="text-sm text-[var(--ios-red)] mt-2" x-show="$store.geo.hasError" x-cloak>
+					<strong x-text="$store.geo.error"></strong>
+					<span x-show="$store.geo.errorCode !== null" x-cloak> (code <span x-text="$store.geo.errorCode"></span>)</span>
+				</p>
+			</div>
+		</template>
+	</DemoExample>
+
+	<DemoExample
+		title="isSupported answers a different question than error"
+		note="isSupported is latched in the controller's constructor: it answers whether this document can geolocate at all, and a transient probe must not flip a store that was built at registration. A denied permission leaves it true and shows up as errorCode 1 instead, so gate on isSupported once and branch on hasError per attempt."
+		code={SUPPORTED_CODE}
+	>
+		<p class="text-sm text-[var(--ios-label-secondary)] text-pretty">
+			The unsupported branch above is the only one this page gates on. It is deliberately
+			separate from the error branch inside: <code>isSupported</code> is latched at
+			construction, so a browser that has geolocation but refuses the prompt never reaches
+			the message at the top — it renders the panel and shows the permission error instead.
+		</p>
+		<p class="text-sm text-[var(--ios-red)]" x-show="$store.geo.hasError" x-cloak>
+			<strong x-text="$store.geo.error"></strong>
+			<span x-show="$store.geo.errorCode !== null" x-cloak> (code <span x-text="$store.geo.errorCode"></span>)</span>
+		</p>
+	</DemoExample>
+
+	<DemoExample
+		title="isLoading, isWatching and hasPosition are three different things"
+		note="isLoading comes from an explicit loading event the store projects, so the Locating… label is reachable; isWatching tracks the watchPosition subscription, and watch() returns false rather than silently replacing a watch already in flight. Worth knowing: request, watch, unwatch and reset have no destroyed-phase guard, so they stay callable on a store whose controller was destroyed."
+		code={LIFECYCLE_CODE}
+	>
+		<template x-if="$store.geo.isSupported">
+			<div>
+				<div class="flex flex-wrap gap-2">
+					<DemoButton @click="$store.geo.request({ enableHighAccuracy: true, timeout: 10000 })" x-bind:disabled="$store.geo.isLoading" data-testid="geo-lifecycle">
+						<span x-text="$store.geo.isLoading ? 'Locating…' : 'request()'"></span>
+					</DemoButton>
+					<DemoButton x-show="!$store.geo.isWatching" x-cloak @click="$store.geo.watch()">watch()</DemoButton>
+					<DemoButton x-show="$store.geo.isWatching" x-cloak @click="$store.geo.unwatch()">unwatch()</DemoButton>
+					<DemoButton @click="$store.geo.reset()">reset()</DemoButton>
+				</div>
+				<p class="text-xs text-[var(--ios-label-secondary)] mt-2">
+					watching: <strong x-text="$store.geo.isWatching"></strong> · has position:
+					<strong x-text="$store.geo.hasPosition"></strong>
+				</p>
+			</div>
+		</template>
+	</DemoExample>
+</DemoSection>

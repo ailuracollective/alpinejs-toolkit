@@ -1,0 +1,61 @@
+:root {
+  --toolkit-accent: #4f46e5;
+  --toolkit-border: #e2e8f0;
+  --toolkit-surface: #ffffff;
+  --toolkit-ink: #0f172a;
+  --toolkit-muted: #64748b;
+  --toolkit-shadow: rgba(15, 23, 42, 0.08);
+}
+
+html[data-theme="dark"] {
+  --toolkit-accent: #818cf8;
+  --toolkit-border: #3f3f46;
+  --toolkit-surface: #18181b;
+  --toolkit-ink: #e4e4e7;
+  --toolkit-muted: #a1a1aa;
+  --toolkit-shadow: rgba(0, 0, 0, 0.3);
+}
+
+.layer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.layer-card {
+  display: block;
+  border: 1px solid var(--toolkit-border);
+  border-radius: 12px;
+  padding: 1.1rem 1.2rem;
+  background: var(--toolkit-surface);
+  text-decoration: none;
+  color: var(--toolkit-ink);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.layer-card:hover {
+  border-color: var(--toolkit-accent);
+  box-shadow: 0 4px 14px var(--toolkit-shadow);
+}
+
+.layer-card h3 {
+  margin: 0 0 0.3rem;
+  font-size: 1rem;
+}
+
+.layer-card p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--toolkit-muted);
+}
+
+.layer-card .count {
+  display: inline-block;
+  margin-top: 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--toolkit-accent);
+}

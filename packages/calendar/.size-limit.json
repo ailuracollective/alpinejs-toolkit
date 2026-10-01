@@ -1,0 +1,11 @@
+[
+  {
+    "name": "calendar full surface",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "3.5 kB",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core", "date-fns"],
+    "gzip": true,
+    "brotli": true
+  }
+]

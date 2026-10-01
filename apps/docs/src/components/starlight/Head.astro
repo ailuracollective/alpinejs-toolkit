@@ -1,0 +1,64 @@
+---
+import StarlightHead from '@astrojs/starlight/components/Head.astro';
+import VtbotStarlight from 'astro-vtbot/components/starlight/Base.astro';
+
+import AutoNameSelected from 'astro-vtbot/components/AutoNameSelected.astro';
+import DocNavCompat from './DocNavCompat.astro';
+
+const { siteTitleHref } = Astro.locals.starlightRoute;
+
+/*
+  Transitions are enabled per page, not site-wide.
+
+  The home page uses the `splash` template, whose markup has no sidebar and no
+  table of contents, while every doc page has both. Swapping between the two
+  therefore means reconciling two different page structures, which is where the
+  sidebar used to get stuck or vanish.
+
+  Rather than carry that complexity, the home page is excluded from client-side
+  routing entirely: it renders no `<ClientRouter />`, so leaving it always costs
+  a real page load. That makes `doc -> home -> doc` behave like two ordinary
+  page loads while doc-to-doc navigation stays smooth.
+
+  `DocNavCompat` covers the other direction, because a doc page *does* have the
+  router and would otherwise intercept clicks on links to the home page.
+*/
+const isHome = Astro.url.pathname === siteTitleHref;
+---
+
+{isHome ? (
+	<StarlightHead>
+		<slot />
+	</StarlightHead>
+) : (
+	<>
+		<VtbotStarlight transition:name="main" transition:animate="fade">
+			<StarlightHead>
+				<slot />
+			</StarlightHead>
+		</VtbotStarlight>
+
+		<DocNavCompat homePath={siteTitleHref} />
+
+		{/* Morph same-position headings between doc pages. */}
+		<AutoNameSelected selector=".markdown-wrapper h2, .markdown-wrapper h3" prefix="vtbot-hx" />
+	</>
+)}
+
+<style is:global>
+	/* Only applies where the router is active, i.e. on doc pages. */
+	::view-transition-group(root) {
+		animation-duration: 250ms;
+	}
+
+	::view-transition-group(main) {
+		overflow: hidden;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		::view-transition-group(root),
+		::view-transition-group(main) {
+			animation: none !important;
+		}
+	}
+</style>

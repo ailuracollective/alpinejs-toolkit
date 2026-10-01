@@ -1,0 +1,146 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import Alert from "../astro/Alert.astro";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("notify")!;
+
+// The real reads and the real call of the permission example.
+const PERMISSION_CODE = `x-data="{ lastPermission: null }"
+
+$notify.isSupported               // false in an insecure context, or without the API
+$notify.permission                // 'default' | 'granted' | 'denied'
+$notify.requiresHomeScreenInstall // iOS: the permission cannot be granted from a tab
+
+// The one call that prompts. It is async and resolves with the resulting state,
+// so keep the result rather than assuming 'granted' — Safari resolves 'denied'
+// without ever showing a dialog. \`permission\` above is reactive and updates
+// by itself, which is why the button below does not need to re-render anything.
+lastPermission = await $notify.requestPermission()
+
+// x-cloak on every one of these: x-show hides them a frame after boot.
+<Alert x-show="$notify.requiresHomeScreenInstall" x-cloak>…</Alert>
+<DemoButton x-show="$notify.isSupported && $notify.permission === 'default'"
+            x-cloak @click="await $notify.requestPermission()">requestPermission()</DemoButton>`;
+
+// The real calls of the send example, including the options that matter.
+const SEND_CODE = `x-data="{ lastNote: null, lastAttempted: false }"
+
+// Synchronous, and gated on permission like sendIfPermitted. The only route it
+// can take is \`new Notification()\`, so it returns null whenever the platform
+// refuses that route — iOS always, Chrome from a backgrounded document — with
+// permission granted. A null here does NOT mean the permission was denied.
+lastNote = $notify.send('Desktop sync', { body: 'Synchronous send() on desktop.' })
+
+// Async, and the only one that falls back to a registered service worker. That
+// fallback is what makes notifications work on iPhone at all.
+//
+// Careful: even sendAsync can resolve to null after a SUCCESSFUL delivery.
+// registration.showNotification() returns void by spec, so the service-worker
+// route has no Notification object to hand back. Treat its null as "unknown",
+// not as "failed" — never gate a success toast on it.
+lastNote = await $notify.sendAsync('Task complete', {
+  body: 'Plugins are working correctly.',
+  icon: '/logo.svg',
+})
+
+// Synchronous AND permission-gated: it returns null without constructing
+// anything when permission is not 'granted', which is the one case where a null
+// really does mean "not permitted".
+lastNote = $notify.sendIfPermitted('Silent notification')
+
+<p x-show="lastAttempted" x-cloak
+   x-text="lastNote ? 'Notification created.' : 'Nothing was shown.'"></p>
+
+// close(tag?) is declared and does nothing — there is no handle to close,
+// because send() hands you a Notification the platform may already have
+// discarded. Do not build a dismiss button on it.`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="Permission state, and the one call that asks for it"
+		note="The wrapper exists because the Notification API has no way to tell 'not asked' from 'refused' from 'the platform will never allow it' — a bare `new Notification()` throws on iOS and silently no-ops in a backgrounded tab. Reach for this instead of `Notification.requestPermission()` directly, because the state is what you need to branch on, not just the promise."
+		open
+		code={PERMISSION_CODE}
+	>
+		<div x-data="{ lastPermission: null }" data-testid="notify-state">
+			<ul class="list-disc list-inside space-y-1 text-sm">
+				<li>Supported: <strong x-text="$notify.isSupported"></strong></li>
+				<li>Permission: <strong x-text="$notify.permission"></strong></li>
+			</ul>
+			<Alert variant="warning" class="mt-3" x-show="$notify.requiresHomeScreenInstall" x-cloak>
+				<span>On iPhone and iPad, add this site to your Home Screen and open it from there to enable notifications.</span>
+			</Alert>
+			<div class="mt-3">
+				<DemoButton
+					x-show="$notify.isSupported && $notify.permission === 'default'"
+					x-cloak
+					@click="lastPermission = await $notify.requestPermission()"
+				>
+					requestPermission()
+				</DemoButton>
+			</div>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Three send methods, and a null that means two different things"
+		note="Read the return value, but do not read it as a verdict. `send()` and `sendIfPermitted()` are synchronous and can only use the constructor; `sendAsync()` is the only one with a service-worker fallback. Use it by default on iOS-capable targets, and treat a `null` from either synchronous method as 'the platform would not take that route', not as a refusal."
+		code={SEND_CODE}
+	>
+		<div x-data="{ lastNote: null, lastAttempted: false }" data-testid="notify-send">
+			<div class="flex flex-wrap gap-2 mt-3">
+				<DemoButton
+					x-show="$notify.isSupported && $notify.permission === 'granted'"
+					x-cloak
+					@click="lastAttempted = true; lastNote = $notify.send('Desktop sync', { body: 'Synchronous send() on desktop.' })"
+				>
+					send()
+				</DemoButton>
+				<DemoButton
+					x-show="$notify.isSupported && $notify.permission === 'granted'"
+					x-cloak
+					@click="lastAttempted = true; lastNote = await $notify.sendAsync('Task complete', { body: 'Plugins are working correctly.', icon: '/logo.svg' })"
+				>
+					sendAsync()
+				</DemoButton>
+				<DemoButton
+					x-show="$notify.isSupported"
+					x-cloak
+					@click="lastAttempted = true; lastNote = $notify.sendIfPermitted('Silent notification')"
+				>
+					sendIfPermitted()
+				</DemoButton>
+			</div>
+			<Alert variant="destructive" class="mt-3" x-show="$notify.isSupported && $notify.permission === 'denied'" x-cloak>
+				<span>Permission denied — enable notifications in your browser settings.</span>
+			</Alert>
+			<p
+				class="text-xs text-[var(--ios-label-secondary)] mt-2"
+				x-show="lastAttempted"
+				x-text="lastNote ? 'Notification created.' : 'Nothing was shown.'"
+				x-cloak
+			></p>
+			<p class="text-xs text-[var(--ios-label-secondary)] mt-3">
+				The three send methods are not interchangeable. <code>send()</code> and
+				<code>sendIfPermitted()</code> are synchronous, so they can only use the
+				<code>new Notification()</code> constructor — which iOS rejects outright and which
+				Chrome rejects from a backgrounded document, so both return <code>null</code> even
+				with permission granted. <code>sendAsync()</code> is the only one that falls back to
+				a registered service worker, which is what makes notifications work on iPhone at
+				all. A <code>null</code> return is therefore ambiguous on its own: it can mean
+				"not permitted" or "the platform would not take that route".
+			</p>
+			<p class="text-xs text-[var(--ios-label-secondary)] mt-3">
+				<code>sendAsync()</code> can resolve to <code>null</code> even when the notification
+				was delivered: <code>registration.showNotification()</code> returns <code>void</code>
+				by spec, so the service-worker route has no <code>Notification</code> object to hand
+				back. Read that <code>null</code> as "unknown", not as "failed". And
+				<code>close(tag?)</code> is declared and does nothing — there is no handle to close.
+			</p>
+		</div>
+	</DemoExample>
+</DemoSection>

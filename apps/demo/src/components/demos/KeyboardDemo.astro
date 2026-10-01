@@ -1,0 +1,204 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import Kbd from "../astro/Kbd.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("keyboard")!;
+
+// The real x-data and the real x-init of the example below it.
+const REGISTER_CODE = `x-data="{
+  log: [],
+  seq: 0,
+  push(message) {
+    // A unique id per entry: two presses of the same shortcut produce the same
+    // message, and :key on a duplicate breaks the x-for rather than showing
+    // two lines.
+    this.log = [{ id: ++this.seq, message }, ...this.log].slice(0, 6);
+  },
+}"
+x-init="
+  (() => {
+    // The IIFE is load-bearing, not decoration. Alpine compiles x-init to
+    // \`let __result = <expression>\`, so with several statements only the FIRST
+    // one's value lands in __result — and register() returns an unregister
+    // disposer, which Alpine then invokes. A bare list of register() calls
+    // disposes the first shortcut on mount.
+    //
+    // Unregister first: the playground uses Astro view transitions, so x-init
+    // runs again on every visit, and register() throws on a duplicate id.
+    for (const id of ['demo-chord', 'demo-sequence', 'demo-editor']) {
+      $store.keyboard.unregister(id);
+    }
+
+    $store.keyboard.register('mod+shift+k', () => push('Chord: mod+shift+k'), {
+      id: 'demo-chord',
+      // \`mod\` resolves to Cmd on Apple platforms and Ctrl everywhere else, so
+      // write it rather than the platform's own modifier.
+      metadata: { label: 'Demo chord', group: 'Demo' },
+    });
+
+    // A sequence: the buffer is matched on its LAST chord, so both keys have to
+    // arrive inside sequenceTimeout (800ms by default).
+    $store.keyboard.register('g h', () => push('Sequence: g then h'), {
+      id: 'demo-sequence',
+      metadata: { label: 'Go home sequence', group: 'Demo' },
+    });
+
+    // \`scope\` is the gate. This registration stays inert until
+    // activateScope('editor') is called; an unscoped registration would land in
+    // the 'default' scope, which is active from the first frame.
+    $store.keyboard.register('x', () => push('Editor scope: x'), {
+      id: 'demo-editor',
+      scope: 'editor',
+      metadata: { label: 'Editor action', group: 'Editor' },
+    });
+  })()
+"
+
+// The handler runs with the merged data scope as \`this\`, not as an argument —
+// that is why every registration above closes over \`push\` instead of taking it
+// as a parameter.
+<span x-text="$store.keyboard.commands.map((c) => c.label ?? c.id).join(', ')"></span>
+
+// \`ignoreEditableTargets\` does not gate anything in either position: the real
+// gate is the per-registration allowInEditable, checked for every registration
+// regardless of that option. Set allowInEditable: true on the registration you
+// want to keep working inside an input, and nowhere else.`;
+
+// The real buttons and the real reads of the scope example.
+const SCOPES_CODE = `// The 'editor'-scoped \`x\` above only fires while 'editor' is active AND not
+// suspended. Four calls move it, and they are not interchangeable:
+//
+//   activateScope   → added to activeScopes      → \`x\` fires
+//   suspendScope    → added to suspendedScopes   → \`x\` does NOT fire, and the
+//                     scope stays active, so nothing has to be re-activated
+//   resumeScope     → removed from suspended     → \`x\` fires again
+//   deactivateScope → removed from active        → \`x\` does NOT fire
+//
+// deactivateScope('default') is refused on purpose: every unscoped registration
+// lives in 'default' and it starts active, so deactivating it would silently
+// kill every global shortcut in the app.
+<DemoButton @click="$store.keyboard.activateScope('editor')">activateScope('editor')</DemoButton>
+<DemoButton @click="$store.keyboard.deactivateScope('editor')">deactivateScope('editor')</DemoButton>
+<DemoButton @click="$store.keyboard.suspendScope('editor')">suspendScope('editor')</DemoButton>
+<DemoButton @click="$store.keyboard.resumeScope('editor')">resumeScope('editor')</DemoButton>
+
+Active scopes:   <span x-text="$store.keyboard.activeScopes.join(', ')"></span>
+Suspended:       <span x-text="$store.keyboard.suspendedScopes.join(', ') || 'none'"></span>`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-sm text-[var(--ios-label-secondary)] mb-4 text-pretty">
+		A scoped shortcut registry, not a key-binding helper: you register commands once and
+		the store resolves chords, sequences and scopes against a single global
+		<code>keydown</code> listener.
+	</p>
+
+	<DemoExample
+		title="A chord and a sequence, registered once and disposed safely"
+		note="Reach for this instead of a per-component window listener when more than one component wants the same key — there is exactly one listener, and `register()` hands back an unregister disposer. These are physical key presses, so the demo needs a hardware or Bluetooth keyboard."
+		open
+		code={REGISTER_CODE}
+	>
+		<div
+			class="space-y-4 text-sm"
+			x-data="{
+				log: [],
+				seq: 0,
+				push(message) {
+					// A unique id per entry: two presses of the same shortcut produce
+					// the same message, and `:key` on a duplicate would break the
+					// x-for rather than show two lines.
+					this.log = [{ id: ++this.seq, message }, ...this.log].slice(0, 6);
+				},
+			}"
+			x-init="
+				(() => {
+					// The IIFE is load-bearing, not decoration. Alpine compiles x-init to
+					// `let __result = <expression>`, so with several statements only the
+					// FIRST one's value lands in __result — and register() returns an
+					// unregister disposer, which Alpine then invokes. A bare list of
+					// register() calls therefore disposed the first shortcut on mount,
+					// which is why `mod+shift+k` (the one this demo tells you to try
+					// first) never fired while the other two worked. An IIFE makes the
+					// value undefined and every registration survives.
+					//
+					// The unregister pass makes re-entry idempotent: the playground uses
+					// Astro view transitions, so this runs again on every visit, and
+					// register() throws on a duplicate id.
+					for (const id of ['demo-chord', 'demo-sequence', 'demo-editor']) {
+						$store.keyboard.unregister(id);
+					}
+					$store.keyboard.register('mod+shift+k', () => push('Chord: mod+shift+k'), {
+						id: 'demo-chord',
+						metadata: { label: 'Demo chord', group: 'Demo' },
+					});
+					$store.keyboard.register('g h', () => push('Sequence: g then h'), {
+						id: 'demo-sequence',
+						metadata: { label: 'Go home sequence', group: 'Demo' },
+					});
+					$store.keyboard.register('x', () => push('Editor scope: x'), {
+						id: 'demo-editor',
+						scope: 'editor',
+						metadata: { label: 'Editor action', group: 'Editor' },
+					});
+				})()
+			"
+		>
+			<p>
+				Try <Kbd>mod+shift+k</Kbd>, or the sequence <Kbd>g</Kbd> then <Kbd>h</Kbd>. Press
+				<Kbd>x</Kbd> too — it is registered, but inert until the next example activates its
+				scope.
+			</p>
+			<ul class="list-disc list-inside space-y-1" data-testid="keyboard-log">
+				<template x-for="entry in log" :key="entry.id">
+					<li x-text="entry.message"></li>
+				</template>
+			</ul>
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				Registered commands:
+				<span x-text="$store.keyboard.commands.map((command) => command.label ?? command.id).join(', ')"></span>
+			</p>
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				<code>ignoreEditableTargets</code> does not gate anything in either position —
+				the gate is the per-registration <code>allowInEditable</code>, checked for every
+				registration regardless of that option.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Scopes decide which registration is live"
+		note="A registration fires only when one of its scopes is active and none of them is suspended, so 'is this shortcut on?' is a property of the registry rather than of your handler. This is what you want for an editor overlay or a modal: switch the whole set off with one call instead of unregistering anything."
+		code={SCOPES_CODE}
+	>
+		<div class="space-y-4 text-sm" data-testid="keyboard-scopes">
+			<p>
+				Press <Kbd>activateScope('editor')</Kbd> and then <Kbd>x</Kbd> — the line appears
+				in the log above. Suspend it instead of deactivating it and the scope stays listed as
+				active while <Kbd>x</Kbd> goes quiet.
+			</p>
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="$store.keyboard.activateScope('editor')">activateScope('editor')</DemoButton>
+				<DemoButton @click="$store.keyboard.deactivateScope('editor')">deactivateScope('editor')</DemoButton>
+				<DemoButton @click="$store.keyboard.suspendScope('editor')">suspendScope('editor')</DemoButton>
+				<DemoButton @click="$store.keyboard.resumeScope('editor')">resumeScope('editor')</DemoButton>
+			</div>
+			<p>
+				Active scopes:
+				<strong x-text="$store.keyboard.activeScopes.join(', ')"></strong>
+			</p>
+			<p>
+				Suspended scopes:
+				<strong x-text="$store.keyboard.suspendedScopes.join(', ') || 'none'"></strong>
+			</p>
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				<code>deactivateScope('default')</code> is refused on purpose: every unscoped
+				registration lives in <code>default</code> and it starts active, so deactivating it
+				would kill every global shortcut in the app.
+			</p>
+		</div>
+	</DemoExample>
+</DemoSection>

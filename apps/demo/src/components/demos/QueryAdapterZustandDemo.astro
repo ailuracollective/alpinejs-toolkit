@@ -1,0 +1,115 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("query-adapter-zustand")!;
+
+// The markup that mounts the example below, plus the adapter it needs. The
+// `create` option is the whole point of the package, so the sample shows it:
+// without it the controller's snapshots are published into a store nobody can
+// reach.
+const SNAPSHOT_CODE = `<!-- src/demo/query-zustand-demo.ts -->
+const stores: StoreApi<{ value: unknown }>[] = [];
+
+const adapter = createZustandStoreAdapter({
+  // Injected so the stores the adapter allocates stay reachable. The singleton
+  // zustandStoreAdapter has no creator, so its snapshots go nowhere.
+  create: (initializer) => {
+    const store = createStore(initializer);
+    stores.push(store);
+    return store;
+  },
+});
+
+alpine.plugin(queryZustand({ storeKey: "queryZustand", adapter }));
+
+<!-- The page: the store is a sink, so the demo subscribes to it -->
+<div x-data="queryZustandDemo" data-testid="query-zustand-snapshots">
+  <DemoButton @click="load()">observe()</DemoButton>
+  <DemoButton @click="addTitle()">mutate()</DemoButton>
+  <DemoButton variant="ghost" @click="forget()">remove()</DemoButton>
+
+  <span>phase: <strong x-text="phase"></strong></span>
+  <span>publishes: <strong x-text="publishes"></strong></span>
+
+  <template x-for="row in rows" :key="row.keyHash">
+    <tr>
+      <td x-text="row.keyHash"></td>
+      <td x-text="row.status"></td>
+      <td x-text="row.isStale"></td>
+    </tr>
+  </template>
+</div>
+
+// Reading the cache out of the store the controller published into
+const store = stores.at(-1)!;
+store.subscribe((state) => {
+  const snapshot = state.value as QueryDevtoolsSnapshot;
+  console.log(snapshot.phase, snapshot.entries.length);
+});`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="Every publish the controller makes lands in a zustand store you can subscribe to"
+		note="The store is a command surface, exactly as it is on the alpine adapter — nothing here reads the cache. What the package adds is the sink: the controller publishes a snapshot into a zustand/vanilla store on every change, and injecting create is what makes that store reachable instead of silent. Watch the publish counter climb while the cache moves."
+		open
+		code={SNAPSHOT_CODE}
+	>
+		<div x-data="queryZustandDemo" class="space-y-4" data-testid="query-zustand-snapshots">
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="load()">observe()</DemoButton>
+				<DemoButton @click="addTitle()">mutate()</DemoButton>
+				<DemoButton variant="ghost" @click="forget()">remove()</DemoButton>
+			</div>
+
+			<div class="flex flex-wrap items-center gap-3 text-xs text-[var(--ios-label-secondary)]">
+				<span>phase: <strong x-text="phase"></strong></span>
+				<span>publishes: <strong x-text="publishes"></strong></span>
+				<span>mutations: <strong x-text="mutations"></strong></span>
+				<span>last: <strong x-text="lastPublishAt"></strong></span>
+			</div>
+
+			<p
+				class="text-xs text-[var(--ios-label-secondary)]"
+				x-show="!synced"
+				x-cloak
+				aria-live="polite"
+			>
+				No snapshot yet — the store publishes when the cache changes.
+			</p>
+
+			<div class="overflow-hidden rounded-lg border border-[var(--ios-separator)]">
+				<table class="w-full text-left text-sm">
+					<thead class="bg-[var(--ios-fill-quaternary)] text-[10px] tracking-wider text-[var(--ios-label-tertiary)] uppercase">
+						<tr class="border-b border-[var(--ios-separator)]">
+							<th scope="col" class="h-9 px-3 font-semibold">Entry</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Status</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Fetching</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Stale</th>
+							<th scope="col" class="h-9 px-3 text-right font-semibold">Cached titles</th>
+						</tr>
+					</thead>
+					<tbody>
+						<template x-for="row in rows" :key="row.keyHash">
+							<tr class="border-b border-[var(--ios-separator)] last:border-0">
+								<td class="p-2.5 font-mono text-xs" x-text="row.keyHash"></td>
+								<td class="p-2.5" x-text="row.status"></td>
+								<td class="p-2.5" x-text="row.fetchStatus"></td>
+								<td class="p-2.5" x-text="row.isStale"></td>
+								<td class="p-2.5 text-right" x-text="titles.join(', ') || '—'"></td>
+							</tr>
+						</template>
+					</tbody>
+				</table>
+			</div>
+		</div>
+	</DemoExample>
+
+	<p class="text-xs text-[var(--ios-label-secondary)]">
+		Runs on <code>@ailura/alpinejs-query-adapter-zustand</code> with a fake fetcher, registered
+		under its own <code>$store</code> key so the alpine adapter keeps the original one.
+	</p>
+</DemoSection>

@@ -1,0 +1,152 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("history")!;
+
+// The trap the page already documented: without `initialValue`, `value` starts
+// as `undefined`, `undefined + 1` is `NaN`, and `Object.is(NaN, NaN)` is true,
+// so the controller's dedupe discards every commit and the stack never grows.
+const UNDO_CODE = `x-data="{
+  step: 1,
+  // Careful: history() is registered WITHOUT initialValue, so value starts as
+  // undefined. undefined + 1 is NaN, and Object.is(NaN, NaN) is true: the
+  // dedupe in commit() sees a duplicate and returns WITHOUT touching the value
+  // or growing the stack. That is why current() returns \`?? 0\` and not plain
+  // \`value\`.
+  current() { return $store.history.value ?? 0 },
+  increment() { $store.history.commit(this.current() + this.step) },
+  decrement() { $store.history.commit(this.current() - this.step) },
+}"
+
+<button @click="increment()">+1</button>
+<button @click="decrement()">-1</button>
+
+<!-- canUndo/canRedo are the real state of the buttons: disable with them, not
+     with a check of your own. -->
+<button @click="$store.history.undo()" :disabled="!$store.history.canUndo">Undo</button>
+<button @click="$store.history.redo()" :disabled="!$store.history.canRedo">Redo</button>
+
+<!-- clear() leaves value as undefined FOR REAL: the read has to be guarded. -->
+<button @click="$store.history.clear()">Clear</button>
+
+Value: <strong x-text="String($store.history.value ?? 'none')"></strong>
+Undo: <strong x-text="$store.history.undoStack.length"></strong>
+Redo: <strong x-text="$store.history.redoStack.length"></strong>
+
+<!-- Careful: every commit EMPTIES the redo stack. Undo and then edit
+     discards the future instead of forking it: that is the standard
+     undo/redo contract, not a bug. -->`;
+
+const CHECKPOINT_CODE = `<!-- checkpoint() pushes the CURRENT value as its own entry:
+     it makes a state undoable WITHOUT changing it. It goes through the same
+     dedupe as commit(), so repeating it with nothing changed does not grow the
+     stack, and with value undefined it is a no-op. -->
+<button @click="$store.history.checkpoint({ label: 'snapshot' })">checkpoint()</button>`;
+
+const TRANSACTION_CODE = `txCommit() {
+  const tx = $store.history.transaction(this.current())
+  $store.history.commit(this.current() + 5)
+  // The initialValue is NOT re-committed: the changes inside are already on the
+  // stack, so one Undo takes them all back as ONE step.
+  tx.commit()   // keeps the +5
+},
+txRollback() {
+  const tx = $store.history.transaction(this.current())
+  $store.history.commit(this.current() + 100)
+  tx.rollback()  // drops the +100 and restores the snapshot
+},
+
+<!-- Careful: rollback() does NOT pop the stack. It does not commit what is
+     inside, it discards it and keeps the state from before. -->`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	{/*
+		The demo registers `history()` with no `initialValue`, so `value` starts
+		as `undefined`. Arithmetic on it yields `NaN`, and `Object.is(NaN, NaN)`
+		is true, so the controller treats every later commit as a duplicate and
+		the undo stack never grows: +1 did nothing at all. Coerce to a number
+		first, the way real code has to. That trap is now written into the
+		sample of the first example, where a reader will hit it.
+	*/}
+	<div
+		x-data="{
+			step: 1,
+			current() { return $store.history.value ?? 0 },
+			increment() { $store.history.commit(this.current() + this.step) },
+			decrement() { $store.history.commit(this.current() - this.step) },
+			txCommit() {
+				const tx = $store.history.transaction(this.current())
+				$store.history.commit(this.current() + 5)
+				tx.commit()
+			},
+			txRollback() {
+				const tx = $store.history.transaction(this.current())
+				$store.history.commit(this.current() + 100)
+				tx.rollback()
+			},
+		}"
+	>
+		<DemoExample
+			title="Undo and redo over a value you commit"
+			note="Coerce before you add. The store is registered with no initialValue, so value starts as undefined, and undefined + 1 is NaN — and because the controller dedupes with Object.is, and Object.is(NaN, NaN) is true, every commit is read as a duplicate and the stack never grows. current() returning ?? 0 is the whole fix. One more thing to expect: each commit empties the redo stack, so undo-then-edit discards the future instead of forking it."
+			open
+			code={UNDO_CODE}
+		>
+			<div class="flex flex-wrap items-center gap-2">
+				<DemoButton @click="increment()" data-testid="history-increment">+{1}</DemoButton>
+				<DemoButton @click="decrement()">-{1}</DemoButton>
+				<span class="mx-1 w-px h-4 bg-[var(--ios-separator)]"></span>
+				<DemoButton @click="$store.history.undo()" :disabled="!$store.history.canUndo">Undo</DemoButton>
+				<DemoButton @click="$store.history.redo()" :disabled="!$store.history.canRedo">Redo</DemoButton>
+				<DemoButton @click="$store.history.clear()">Clear</DemoButton>
+			</div>
+
+			<div class="flex flex-wrap gap-3 text-sm">
+				<span>Value: <strong x-text="String($store.history.value ?? 'none')"></strong></span>
+				<span>Undo: <strong x-text="$store.history.undoStack.length"></strong></span>
+				<span>Redo: <strong x-text="$store.history.redoStack.length"></strong></span>
+				<span>canUndo: <strong x-text="$store.history.canUndo"></strong></span>
+				<span>canRedo: <strong x-text="$store.history.canRedo"></strong></span>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="checkpoint() makes a state undoable without changing it"
+			note="The snapshot a user can come back to: it pushes the current value as its own entry and leaves the value alone. It goes through the same dedupe as a commit, so checkpointing an unchanged value is a no-op that does not grow the stack — and it does nothing at all while value is undefined."
+			code={CHECKPOINT_CODE}
+		>
+			<div class="flex flex-wrap items-center gap-2">
+				<span class="text-sm text-[var(--ios-label-secondary)]">Checkpoint:</span>
+				<DemoButton @click="$store.history.checkpoint({ label: 'snapshot' })">checkpoint()</DemoButton>
+				<span class="text-sm text-[var(--ios-label-secondary)]">
+					undo stack: <strong x-text="$store.history.undoStack.length"></strong>
+				</span>
+			</div>
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				Commit something first: with an empty stack, <code>checkpoint()</code> has no current
+				value to snapshot and does nothing.
+			</p>
+		</DemoExample>
+
+		<DemoExample
+			title="A transaction groups several commits into one undo step"
+			note="commit +5 keeps the +5 and undoes in one press; rollback discards the +100 and restores the snapshot. Neither re-commits the value the transaction opened with — the changes inside are already on the stack, so committing the opening value again would push a second entry that undoes them and the +5 would land you exactly where you started."
+			code={TRANSACTION_CODE}
+		>
+			<div class="flex flex-wrap items-center gap-2">
+				<span class="text-sm text-[var(--ios-label-secondary)]">Transaction:</span>
+				<DemoButton @click="txCommit()" data-testid="history-tx-commit">commit +5</DemoButton>
+				<DemoButton @click="txRollback()">rollback</DemoButton>
+			</div>
+
+			<div class="flex flex-wrap gap-3 text-sm">
+				<span>Value: <strong x-text="String($store.history.value ?? 'none')"></strong></span>
+				<span>Undo: <strong x-text="$store.history.undoStack.length"></strong></span>
+			</div>
+		</DemoExample>
+	</div>
+</DemoSection>

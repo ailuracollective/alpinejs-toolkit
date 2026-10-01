@@ -1,0 +1,189 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("accordion")!;
+const triggerClasses =
+	"flex w-full items-center justify-between rounded-md border px-4 py-3 text-left text-sm font-medium hover:bg-[var(--ios-fill-quaternary)]";
+
+// The real x-data, the real x-init and the real trigger/panel bindings of the
+// first example below. Watch the trap: `create()` is what makes the group
+// exist. `toggle()` on an accordion id nobody created is a SILENT no-op — no
+// error, no state, a button that just does nothing. (`createItem()` is the one
+// call that would have created the group for us, but `create()` is where mode
+// and defaultOpen live, so it has to be there.)
+const SINGLE_CODE = `x-data="{ items: ['billing', 'shipping', 'returns'] }"
+x-init="(() => {
+  $store.accordion.create('faq', { mode: 'single', defaultOpen: 'shipping' });
+  items.forEach(id => $store.accordion.createItem('faq', id));
+})()"
+@keydown="$store.accordion.handleKeydown('faq', $event)"
+
+<!-- x-bind only for the static ids. Alpine applies an object-form x-bind
+     EXACTLY ONCE, so the two attributes that change need their own binding. -->
+<button
+  x-bind="$store.accordion.triggerProps('faq', id)"
+  :aria-expanded="$store.accordion.isOpen('faq', id)"
+  :tabindex="$store.accordion.activeItem('faq') === id ? 0 : -1"
+  @click="$store.accordion.toggle('faq', id)"
+  x-text="id"
+></button>
+
+<div
+  x-show="$store.accordion.isOpen('faq', id)"
+  x-cloak
+  x-collapse
+  x-bind="$store.accordion.panelProps('faq', id)"
+>
+  Panel content
+</div>`;
+
+const MULTIPLE_CODE = `x-data="{ items: ['notifications', 'privacy', 'integrations'] }"
+x-init="(() => {
+  $store.accordion.create('prefs', {
+    mode: 'multiple',
+    // An array ONLY makes sense here: in 'single' mode createInstance() truncates
+    // it to its first id.
+    defaultOpen: ['notifications', 'integrations'],
+  });
+  items.forEach(id => $store.accordion.createItem('prefs', id));
+})()"
+@keydown="$store.accordion.handleKeydown('prefs', $event)"
+
+<button
+  x-bind="$store.accordion.triggerProps('prefs', id)"
+  :aria-expanded="$store.accordion.isOpen('prefs', id)"
+  :tabindex="$store.accordion.activeItem('prefs') === id ? 0 : -1"
+  @click="$store.accordion.toggle('prefs', id)"
+  x-text="id"
+></button>
+
+<div x-show="$store.accordion.isOpen('prefs', id)" x-cloak
+     x-bind="$store.accordion.panelProps('prefs', id)">…</div>`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<div class="grid max-w-lg gap-10">
+		<DemoExample
+			title="Opens one and closes the rest"
+			note="Starts with 'shipping' already expanded by defaultOpen, and opening any other one closes it. In 'single' mode only one panel can be open: it is the createItem() order that decides which, not the click."
+			open
+			code={SINGLE_CODE}
+		>
+			<div
+				x-data="{ items: ['billing', 'shipping', 'returns'] }"
+				x-init="(() => {
+					$store.accordion.create('faq', { mode: 'single', defaultOpen: 'shipping' });
+					items.forEach(id => $store.accordion.createItem('faq', id));
+				})()"
+				@keydown="$store.accordion.handleKeydown('faq', $event)"
+			>
+				<p class="mb-3 text-xs text-[var(--ios-label-secondary)]">
+					Mode: <strong>single</strong> · Open:
+					<strong x-text="$store.accordion.openIds('faq').join(', ') || '—'"></strong>
+				</p>
+
+				<div class="space-y-2">
+					<template x-for="id in items" :key="id" data-testid="accordion-items">
+						<div>
+							<button
+								type="button"
+								class={triggerClasses}
+								x-bind="$store.accordion.triggerProps('faq', id)"
+								:aria-expanded="$store.accordion.isOpen('faq', id)"
+								:tabindex="$store.accordion.activeItem('faq') === id ? 0 : -1"
+								@click="$store.accordion.toggle('faq', id)"
+							>
+								<span x-text="id"></span>
+								<span x-text="$store.accordion.isOpen('faq', id) ? '−' : '+'"></span>
+							</button>
+							<div
+								class="overflow-hidden"
+								x-show="$store.accordion.isOpen('faq', id)"
+								x-cloak
+								x-collapse
+								x-bind="$store.accordion.panelProps('faq', id)"
+							>
+								<div class="px-4 py-3 text-sm text-[var(--ios-label-secondary)]">
+									Only one panel stays open.
+									<code>defaultOpen: 'shipping'</code> expands as the item registers.
+								</div>
+							</div>
+						</div>
+					</template>
+				</div>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Several panels at once"
+			note="The same markup with mode: 'multiple' and an array in defaultOpen. Compare it with the one above: the HTML does not change, only the object passed to create() does — which is why the state lives in the store and not in x-data."
+			code={MULTIPLE_CODE}
+		>
+			<div
+				x-data="{ items: ['notifications', 'privacy', 'integrations'] }"
+				x-init="(() => {
+					$store.accordion.create('prefs', {
+						mode: 'multiple',
+						defaultOpen: ['notifications', 'integrations'],
+					});
+					items.forEach(id => $store.accordion.createItem('prefs', id));
+				})()"
+				@keydown="$store.accordion.handleKeydown('prefs', $event)"
+			>
+				<p class="mb-3 text-xs text-[var(--ios-label-secondary)]">
+					Mode: <strong>multiple</strong> · Open:
+					<strong x-text="$store.accordion.openIds('prefs').join(', ') || '—'"></strong>
+				</p>
+
+				<div class="space-y-2">
+					<template x-for="id in items" :key="id">
+						<div>
+							<button
+								type="button"
+								class={triggerClasses}
+								x-bind="$store.accordion.triggerProps('prefs', id)"
+								:aria-expanded="$store.accordion.isOpen('prefs', id)"
+								:tabindex="$store.accordion.activeItem('prefs') === id ? 0 : -1"
+								@click="$store.accordion.toggle('prefs', id)"
+							>
+								<span x-text="id"></span>
+								<span x-text="$store.accordion.isOpen('prefs', id) ? '−' : '+'"></span>
+							</button>
+							<div
+								class="overflow-hidden"
+								x-show="$store.accordion.isOpen('prefs', id)"
+								x-cloak
+								x-collapse
+								x-bind="$store.accordion.panelProps('prefs', id)"
+							>
+								<div class="px-4 py-3 text-sm text-[var(--ios-label-secondary)]">
+									Several panels stay open. Defaults:
+									<code>['notifications', 'integrations']</code> — an array only
+									makes sense in this mode.
+								</div>
+							</div>
+						</div>
+					</template>
+				</div>
+			</div>
+		</DemoExample>
+
+		<div>
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				<code>triggerProps()</code> gives you <code>aria-expanded</code>,
+				<code>aria-controls</code> and the roving <code>tabindex</code>;
+				<code>panelProps()</code> gives you <code>role="region"</code> and the
+				<code>id</code>/<code>aria-labelledby</code> pair. The arrow keys move the active item
+				and <code>Home</code>/<code>End</code> jump to the first and the last one — the
+				package never calls <code>focus()</code>, so the browser itself moves the real focus
+				when it reads the new <code>tabindex="0"</code>. Animate with the official plugin
+				<a
+					href="https://alpinejs.dev/plugins/collapse"
+					class="underline hover:text-[var(--ios-label)]">@alpinejs/collapse</a
+				>: <code>x-show</code> + <code>x-collapse</code> on the same element.
+			</p>
+		</div>
+	</div>
+</DemoSection>

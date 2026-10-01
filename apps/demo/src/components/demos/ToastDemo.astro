@@ -1,0 +1,179 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("toast")!;
+
+// The toast is not painted where it is pushed: the queue lives in
+// $store.toast.items and the page chrome's renderer mounts it in an overlay.
+// That is why the example below has no <div> where the toast appears: it is not
+// missing, the list is drawn outside this example's tree.
+const VARIANTS_CODE = `<!-- No toast is painted here. $store.toast is a QUEUE: the chrome's
+     renderer (SonnerToasts.astro) mounts it in the overlay. -->
+<button @click="$store.toast.push({ title: 'Hello from Alpine!' })">Default</button>
+<button @click="$store.toast.push({ title: 'Saved', variant: 'success' })">Success</button>
+
+<!-- description is separate from title: they are two fields, not one with a
+     line break. -->
+<button @click="$store.toast.push({
+  title: 'Heads up',
+  description: 'Title + description fields',
+  variant: 'info',
+})">Info</button>
+
+<button @click="$store.toast.push({ title: 'Careful', variant: 'warning' })">Warning</button>
+<button @click="$store.toast.push({ title: 'Failed', variant: 'error' })">Error</button>
+
+<!-- Careful: duration: false is what turns off the auto-dismiss. A duration: 0
+     is not equivalent — the controller treats 0 as "already expired". -->
+<button @click="$store.toast.push({ title: 'Uploading…', variant: 'loading', duration: false })">
+  Loading
+</button>`;
+
+const POSITION_CODE = `<button @click="$store.toast.push({ title: 'Top center', position: 'top-center' })">
+  Top center
+</button>
+
+<!-- A toast that does NOT go away on its own needs an exit: duration: false
+     plus an action, or the reader is left with a notice they cannot dismiss. -->
+<button @click="$store.toast.push({
+  title: 'Never auto-dismisses',
+  duration: false,
+  action: { label: 'Got it' },
+})">Persistent + action</button>
+
+<!-- duration is milliseconds and overrides the plugin's defaultDuration for
+     that toast only. -->
+<button @click="$store.toast.push({ title: 'Gone in 1.5s', duration: 1500 })">
+  Custom duration
+</button>`;
+
+const QUEUE_CODE = `<div x-data="{ lastId: null }">
+  <!-- pushUnique(key, …) is idempotent per key: the toast already under that
+       key is updated instead of duplicated. -->
+  <button @click="$store.toast.pushUnique('sync', {
+    title: 'Syncing…', variant: 'loading', duration: false,
+  })">pushUnique</button>
+
+  <!-- push() returns the id, and update(id, …) mutates it WITHOUT taking the
+       toast out of the stack. That is what avoids the flicker of a
+       'Loading' → 'Saved' pair. -->
+  <button @click="lastId = $store.toast.push({ title: 'Will update…', variant: 'loading' });
+                setTimeout(() => $store.toast.update(lastId, {
+                  title: 'Updated in place', variant: 'success',
+                }), 1200)">update()</button>
+
+  <button @click="$store.toast.dismissAt('top-center')">dismissAt top-center</button>
+  <button @click="$store.toast.dismissAll()">dismissAll</button>
+  <button @click="lastId && $store.toast.dismiss(lastId)">dismiss last pushed</button>
+
+  <!-- 6 pushed, 5 stay: the queue cuts at maxToasts (5) per position and drops
+       the oldest one. maxVisible does NOT do that — see below. -->
+  <button @click="[1,2,3,4,5,6].forEach((i) => $store.toast.push({ title: 'Toast ' + i }))">
+    Flood the stack
+  </button>
+
+  <!-- items are NOT just the live ones: a dismissed toast stays 300 ms with
+       removed: true so the renderer can animate it out. If you want the live
+       count, filter on removed. -->
+  <p x-text="$store.toast.items.filter(i => !i.removed).length"></p>
+</div>`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="Six variants, one push()"
+		note="Reach for this instead of x-show when the notice has to survive a route change. The queue is headless: the package paints nothing, which is why the same push works with any renderer."
+		open
+		code={VARIANTS_CODE}
+	>
+		<div class="flex flex-wrap gap-2">
+			<DemoButton @click="$store.toast.push({ title: 'Hello from Alpine!' })" data-testid="toast-push">Default</DemoButton>
+			<DemoButton @click="$store.toast.push({ title: 'Saved', variant: 'success' })">Success</DemoButton>
+			<DemoButton
+				@click="$store.toast.push({ title: 'Heads up', description: 'Title + description fields', variant: 'info' })"
+			>
+				Info
+			</DemoButton>
+			<DemoButton @click="$store.toast.push({ title: 'Careful', variant: 'warning' })">Warning</DemoButton>
+			<DemoButton variant="destructive" @click="$store.toast.push({ title: 'Failed', variant: 'error' })">
+				Error
+			</DemoButton>
+			<DemoButton
+				@click="$store.toast.push({ title: 'Uploading…', variant: 'loading', duration: false })"
+			>
+				Loading
+			</DemoButton>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="The position belongs to the toast, and the duration is overridden per toast"
+		note="A notice that does not go away on its own needs an exit. duration: false leaves it there forever, and an action is that exit — without both, the reader is left with something they cannot dismiss."
+		code={POSITION_CODE}
+	>
+		<div class="flex flex-wrap gap-2">
+			<DemoButton @click="$store.toast.push({ title: 'Top center', position: 'top-center' })">
+				Top center
+			</DemoButton>
+			<DemoButton
+				@click="$store.toast.push({ title: 'Never auto-dismisses', duration: false, action: { label: 'Got it' } })"
+			>
+				Persistent + action
+			</DemoButton>
+			<DemoButton
+				@click="$store.toast.push({ title: 'Gone in 1.5s', duration: 1500 })"
+			>
+				Custom duration
+			</DemoButton>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="The queue: pushUnique, update() and the maxToasts cap"
+		note="update(id, …) mutates the toast without taking it out of the stack, which is what avoids the flicker of Loading → Saved. And the cap is imposed by the queue, not by the renderer."
+		code={QUEUE_CODE}
+	>
+		<div x-data="{ lastId: null }">
+			<div class="flex flex-wrap gap-2">
+				<DemoButton
+					@click="$store.toast.pushUnique('sync', { title: 'Syncing…', variant: 'loading', duration: false })"
+				>
+					pushUnique
+				</DemoButton>
+				<DemoButton
+					@click="lastId = $store.toast.push({ title: 'Will update…', variant: 'loading' }); setTimeout(() => $store.toast.update(lastId, { title: 'Updated in place', variant: 'success' }), 1200)"
+				>
+					update()
+				</DemoButton>
+				<DemoButton @click="$store.toast.dismissAt('top-center')">dismissAt top-center</DemoButton>
+				<DemoButton @click="$store.toast.dismissAll()">dismissAll</DemoButton>
+				<DemoButton
+					@click="[1, 2, 3, 4, 5, 6].forEach((i) => $store.toast.push({ title: 'Toast ' + i }))"
+				>
+					Flood the stack
+				</DemoButton>
+			</div>
+			<p class="mt-2 text-xs text-[var(--ios-label-secondary)]">
+				Queue: <strong x-text="$store.toast.items.length"></strong> item(s) · max visible
+				<strong x-text="$store.toast.maxVisible"></strong> ·
+				<DemoButton variant="link" size="xs" class="h-auto px-0" @click="lastId && $store.toast.dismiss(lastId)">
+					dismiss last pushed
+				</DemoButton>
+			</p>
+			<p class="mt-1 text-xs text-[var(--ios-label-secondary)]">
+				<strong>“Flood the stack” pushes 6 and keeps 5.</strong> The queue caps live
+				toasts per position at <code>maxToasts</code> (5) and dismisses the oldest one that
+				exceeds it. <code>maxVisible</code> is a different number: the queue never reads it —
+				it is handed to the renderer above, which uses it to decide how many to paint.
+			</p>
+		</div>
+	</DemoExample>
+
+	<p class="text-xs text-[var(--ios-label-secondary)] mt-1">
+		Headless queue; the renderer in the page chrome (<code>SonnerToasts.astro</code>) is demo
+		code, not part of the package.
+	</p>
+</DemoSection>

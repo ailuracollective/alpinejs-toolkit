@@ -1,0 +1,11 @@
+[
+  {
+    "name": "query-adapter-nanostores full surface",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "500 B",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core", "@ailura/alpinejs-query", "nanostores"],
+    "gzip": true,
+    "brotli": true
+  }
+]

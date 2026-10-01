@@ -1,0 +1,110 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import Badge from "../astro/Badge.astro";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("media")!;
+
+// The real reads of the viewport example.
+const VIEWPORT_CODE = `<ul>
+  <li>Width:      <strong x-text="$store.media.width"></strong>px</li>
+  <li>Height:     <strong x-text="$store.media.height"></strong>px</li>
+  <li>Breakpoint: <strong x-text="$store.media.breakpoint"></strong></li>
+</ul>
+
+// The breakpoint is whatever \`intervals\` the plugin was registered with. The
+// defaults are sm / md / lg / xl / 2xl; this playground registers its own, so
+// the names above are NOT the defaults — never hardcode a name, branch on it.
+<Badge x-bind:class="{ 'bg-[var(--ios-blue)] text-white': $store.media.breakpoint === 'mobile' }">Mobile</Badge>
+<Badge x-bind:class="{ 'bg-[var(--ios-blue)] text-white': $store.media.breakpoint === 'tablet' }">Tablet</Badge>
+<Badge x-bind:class="{ 'bg-[var(--ios-blue)] text-white': $store.media.breakpoint === 'desktop' }">Desktop</Badge>`;
+
+// The real reads of the system-preferences example.
+const PREFS_CODE = `<ul>
+  <li>prefersReducedMotion: <strong x-text="$store.media.prefersReducedMotion"></strong></li>
+  <li>prefersColorScheme:   <strong x-text="$store.media.prefersColorScheme"></strong></li>
+  <li>isDark:               <strong x-text="$store.media.isDark"></strong></li>
+</ul>
+
+// prefersColorScheme is DERIVED from isDark, so it reads 'light' even on an OS
+// with no preference at all: a bare matchMedia('(prefers-color-scheme)') probe
+// answers false in every browser and so cannot tell 'light' apart from 'no
+// preference'. The three-value union exists for the server default only — never
+// test for 'no-preference' in the browser and expect it to fire.
+$store.media.prefersReducedMotion   // the one to branch on; global.css honours it too
+$store.media.isDark
+
+// The store listens on its own — this only forces a re-read right now. Note
+// that destroy() is NOT component-scoped: createMediaController returns a
+// document singleton and releaseSingleton() releases it for every reader.
+$store.media.refresh();
+$store.media.destroy();`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="The viewport, live"
+		note="A controller over `matchMedia` plus one debounced window `resize` listener, so a template binding updates itself — no listener of your own, no throttle, no watcher. Reach for it instead of reading `window.innerWidth` when the value only has to be right at the moment it is rendered."
+		open
+		code={VIEWPORT_CODE}
+	>
+		<div>
+			<h4 class="text-sm font-medium mb-2">Viewport</h4>
+			<ul class="text-sm space-y-1" data-testid="media-viewport">
+				<li>Width: <strong x-text="$store.media.width"></strong>px</li>
+				<li>Height: <strong x-text="$store.media.height"></strong>px</li>
+				<li>Breakpoint: <strong x-text="$store.media.breakpoint"></strong></li>
+			</ul>
+			<div class="flex flex-wrap gap-2 mt-2">
+				<Badge x-bind:class="{ 'bg-[var(--ios-blue)] text-white': $store.media.breakpoint === 'mobile' }">Mobile</Badge>
+				<Badge x-bind:class="{ 'bg-[var(--ios-blue)] text-white': $store.media.breakpoint === 'tablet' }">Tablet</Badge>
+				<Badge x-bind:class="{ 'bg-[var(--ios-blue)] text-white': $store.media.breakpoint === 'desktop' }">Desktop</Badge>
+			</div>
+			<p class="text-xs text-[var(--ios-label-secondary)] mt-3">
+				This playground registers the plugin with its own
+				<code>intervals</code> — <code>mobile</code> 0, <code>tablet</code> 768,
+				<code>desktop</code> 1024 — so the breakpoint names here are not the defaults
+				(<code>sm</code>, <code>md</code>, <code>lg</code>, <code>xl</code>, <code>2xl</code>).
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="System preferences, live"
+		note="The media-query half of the same store, for the two preferences worth branching on. `prefersReducedMotion` is the one to reach for, and the playground's global stylesheet already zeroes animation durations from it."
+		code={PREFS_CODE}
+	>
+		<div>
+			<h4 class="text-sm font-medium mb-2">System preferences</h4>
+			<ul class="text-sm space-y-1">
+				<li>prefersReducedMotion: <strong x-text="$store.media.prefersReducedMotion"></strong></li>
+				<li>prefersColorScheme: <strong x-text="$store.media.prefersColorScheme"></strong></li>
+				<li>isDark: <strong x-text="$store.media.isDark"></strong></li>
+			</ul>
+			<p class="text-xs text-[var(--ios-label-secondary)] mt-3">
+				<code>prefersColorScheme</code> reports <code>light</code> even when your OS has no
+				preference at all — it is derived from <code>isDark</code>, because a bare
+				<code>matchMedia("(prefers-color-scheme)")</code> probe answers <code>false</code> in
+				every browser and so cannot tell <code>light</code> apart from "no preference". The
+				three-value union exists for the server default only.
+			</p>
+		</div>
+	</DemoExample>
+
+	<p class="mt-3 flex flex-wrap items-center gap-2">
+		<DemoButton class="mt-0" @click="$store.media.refresh()">refresh()</DemoButton>
+		<span class="text-xs text-[var(--ios-label-secondary)]">
+			Resize the window or change OS media preferences to see live updates.
+			<code>refresh()</code> forces an immediate re-read without waiting for either.
+		</span>
+	</p>
+
+	<p class="mt-3 text-xs text-[var(--ios-label-secondary)]">
+		There is deliberately no <code>destroy()</code> button on this page:
+		<code>createMediaController</code> returns a document singleton, so
+		<code>$store.media.destroy()</code> would silently blank every reading above for the rest
+		of the session, not just this component's.
+	</p>
+</DemoSection>

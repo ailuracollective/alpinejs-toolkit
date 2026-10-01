@@ -1,0 +1,314 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import Kbd from "../astro/Kbd.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("command")!;
+
+const PALETTE_CODE = `<!-- x-data="commandDemo" is the Alpine.data component from
+     src/demo/command-demo.ts: it registers the commands once and puts the ⌘K
+     shortcut in @keydown.window. Only the markup that mounts the palette is
+     shown here. -->
+<div x-data="commandDemo" @keydown.window="handleGlobalKey($event)">
+  <button @click="$store.command.toggle()">Open command palette</button>
+  <button @click="$store.command.close()">Close</button>
+
+  <!-- x-teleport sends it to the layout portal (#overlay-root): that is how the
+       palette is not confined by the example's container. -->
+  <template x-teleport="#overlay-root">
+    <div x-show="$store.command.isOpen" x-cloak x-transition
+         class="fixed inset-0 flex items-start justify-center p-6 pt-[12vh]"
+         :style="{ zIndex: $store.overlay.zIndexOf('command', 'palette') }">
+      <div class="absolute inset-0 bg-black/50" aria-hidden="true"
+           @click="$store.command.close()"></div>
+      <div class="relative z-10 w-full max-w-lg rounded-lg border"
+           role="dialog" aria-label="Command palette"
+           x-effect="$store.command.isOpen && $nextTick(() => $el.querySelector('[data-command-search]')?.focus())">
+
+        <!-- Careful 1: handleKeydown goes on the INPUT, not on the window.
+             On the window, any Escape would close the palette. -->
+        <input type="search" data-command-search
+               x-model="$store.command.search"
+               x-bind="$store.command.inputProps()"
+               @keydown="$store.command.handleKeydown($event)" />
+
+        <ul x-bind="$store.command.listboxProps()">
+          <template x-for="(entry, index) in $store.command.visibleItems" :key="entry.id">
+            <li>
+              <!-- The raw <button> is right: optionProps() computes
+                   role="option", id, aria-selected and aria-disabled, and a
+                   chrome variant would clobber them exactly while they are
+                   being demonstrated. -->
+              <button type="button"
+                      x-bind="$store.command.optionProps(entry.id)"
+                      :aria-selected="index === $store.command.activeIndex"
+                      :disabled="entry.disabled || entry.loading"
+                      @click="$store.command.run(entry.id)">
+                <span x-text="entry.item.label"></span>
+              </button>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </div>
+  </template>
+</div>
+
+<!-- Careful 2: aria-selected CANNOT come from the object-form x-bind.
+     Alpine evaluates an object-form x-bind exactly once, so aria-selected
+     stays at whatever it held on mount. Live attributes go one by one; the ones
+     that never change go in the x-bind. -->
+
+<!-- And the registration, which is what a reader really needs:
+     src/demo/command-demo.ts does this -->
+$store.command.register({
+  id: 'toggle-theme',
+  label: 'Toggle theme',
+  group: 'Appearance',
+  shortcut: '⌘K',
+  keywords: ['dark', 'light'],   // defaultRank searches these; aliases do NOT
+  pinned: true,                  // only seeds pinnedIds at register time
+  action: () => $store.theme.toggle(),
+});`;
+
+const REGISTRY_CODE = `<!-- visibleItems is the RANKED, filtered list: you do not have to
+     write the filter, the order, or the active index.
+     Every entry carries its state already computed. -->
+<ul>
+  <template x-for="entry in $store.command.visibleItems" :key="entry.id">
+    <li>
+      <span x-text="entry.item.label"></span>
+      <span x-text="'rank ' + entry.rank"></span>
+      <span x-show="entry.pinned">pinned</span>
+      <span x-show="entry.recent">recent</span>
+      <span x-show="entry.loading">loading</span>
+      <span x-show="entry.disabled">disabled</span>
+    </li>
+  </template>
+</ul>
+
+<!-- Calling run() from a button is the same call the palette makes.
+     The disabled one is a SILENT no-op: run() returns void in every
+     branch, so "disabled", "filtered out" and "ran" look identical. -->
+<button @click="$store.command.run('export-report')">Run the async command</button>
+<button @click="$store.command.run('disabled-demo')">Run the disabled one</button>
+
+<p>
+  executionState: <span x-text="$store.command.executionState"></span>
+  · runningId: <span x-text="$store.command.runningId ?? '—'"></span>
+  · loadingIds: <span x-text="$store.command.loadingIds.join(', ') || '—'"></span>
+  · pinnedIds: <span x-text="$store.command.pinnedIds.join(', ') || '—'"></span>
+  · recentIds: <span x-text="$store.command.recentIds.join(', ') || '—'"></span>
+</p>
+
+<!-- executionState never says "loading": that value is in the type and
+     no code path assigns it. Use loadingIds or entry.loading.
+     And recentIds does not persist: maxRecent bounds the list, it does not
+     save it. -->`;
+
+const PAGES_CODE = `<!-- A nested page is a stack frame with its own commands.
+     load() runs on EVERY push, and register() throws on a duplicate id —
+     hence the guard. -->
+<button
+  x-on:click={\`$store.command.pushPage({
+    id: 'docs',
+    title: 'Docs',
+    load: () => {
+      if (!('docs-copy' in $store.command.items)) {
+        $store.command.register({
+          id: 'docs-copy',
+          label: 'Copy link',
+          page: 'docs',
+          action: () => navigator.clipboard.writeText(location.href),
+        });
+      }
+    },
+  })\`}
+>
+  Open the "Docs" page
+</button>
+
+<button @click="$store.command.goBack()">Back</button>
+<!-- Back is also Backspace with an empty search. -->
+<button @click="$store.command.close()">Reset the stack</button>
+
+<p>
+  currentPageId: <span x-text="$store.command.currentPageId"></span>
+  · pageStack: <span x-text="$store.command.pageStack.join(' → ')"></span>
+</p>
+<p>
+  Commands on this page:
+  <span x-text="$store.command.filteredItems.map(i => i.label).join(', ') || '—'"></span>
+</p>
+
+<!-- Careful 3: close() returns the stack to ["root"]. If an action does
+     pushPage() and closeOnRun is on (the default), run() closes the palette
+     when it finishes and the nested page is lost before it is ever seen.
+     That is why this example calls pushPage() directly. -->`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-sm text-[var(--ios-label-secondary)] text-pretty">
+		A command registry with ranked filtering, pinned and recent ids, nested pages
+		that load their own, async actions and the combobox ARIA attributes. The
+		palette's markup is yours; the store hands you the already-filtered list
+		and the already-computed attributes.
+	</p>
+
+	<div class="grid gap-6" x-data="commandDemo" @keydown.window="handleGlobalKey($event)">
+		<DemoExample
+			title="Filters as you type and runs with Enter"
+			note="The palette is not implemented, it is mounted: x-model on search, an x-for over visibleItems and optionProps() for the attributes. It is the shortest reachable path between an input and a list of actions — use it instead of a dropdown with its own focus state."
+			open
+			code={PALETTE_CODE}
+		>
+			<div class="flex flex-wrap items-center gap-2">
+				<DemoButton @click="$store.command.open()" data-testid="command-open">Open command palette</DemoButton>
+				<DemoButton variant="ghost" @click="$store.command.close()">Close</DemoButton>
+				<span class="text-xs text-[var(--ios-label-secondary)]">
+					Open: <strong x-text="$store.command.isOpen"></strong> · Page:
+					<strong x-text="$store.command.currentPageId"></strong> · Press <Kbd>⌘K</Kbd>
+					or <Kbd>↑</Kbd><Kbd>↓</Kbd><Kbd>Enter</Kbd><Kbd>Esc</Kbd>
+				</span>
+			</div>
+
+			<template x-teleport="#overlay-root">
+				<div
+					x-show="$store.command.isOpen" x-cloak
+					x-transition
+					class="fixed inset-0 flex items-start justify-center p-6 pt-[12vh]"
+					:style="{ zIndex: $store.overlay.zIndexOf('command', 'palette') }"
+				>
+					<div class="absolute inset-0 bg-black/50" aria-hidden="true" @click="$store.command.close()"></div>
+					<div
+						class="relative z-10 w-full max-w-lg rounded-lg border bg-[var(--ios-bg-elevated)] shadow-2xl"
+						role="dialog"
+						aria-label="Command palette"
+						x-effect="$store.command.isOpen && $nextTick(() => $el.querySelector('[data-command-search]')?.focus())"
+					>
+						<input
+							type="search"
+							data-command-search
+							class="w-full border-b bg-transparent px-4 py-3 text-sm outline-none"
+							placeholder="Search commands…"
+							x-model="$store.command.search"
+							aria-label="Search commands"
+							x-bind="$store.command.inputProps()"
+							@keydown="$store.command.handleKeydown($event)"
+						/>
+						<ul class="max-h-64 overflow-auto p-2" x-bind="$store.command.listboxProps()">
+							<template x-for="(entry, index) in $store.command.visibleItems" :key="entry.id">
+								<li>
+									<button
+										type="button"
+										class="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm"
+										:class="[
+											index === $store.command.activeIndex ? 'bg-[var(--ios-fill-quaternary)]' : 'hover:bg-[var(--ios-fill-quaternary)]/60',
+											entry.disabled ? 'opacity-50 cursor-not-allowed' : '',
+											entry.loading ? 'opacity-70' : '',
+										]"
+										:disabled="entry.disabled || entry.loading"
+										x-bind="$store.command.optionProps(entry.id)"
+										:aria-selected="index === $store.command.activeIndex"
+										@click="!entry.disabled && $store.command.run(entry.id)"
+									>
+										<span>
+											<span x-text="entry.item.label"></span>
+											<span class="text-xs text-[var(--ios-label-secondary)] ml-2" x-text="entry.item.group"></span>
+											<span class="text-xs text-[var(--ios-label-secondary)] ml-2" x-text="entry.item.shortcut"></span>
+											<span class="text-xs text-[var(--ios-blue)] ml-2" x-show="entry.pinned" x-cloak>pinned</span>
+										</span>
+									</button>
+								</li>
+							</template>
+						</ul>
+					</div>
+				</div>
+			</template>
+		</DemoExample>
+
+		<DemoExample
+			title="The list arrives already ranked, filtered and with computed state"
+			note="You write neither the filter, nor the order, nor the active index. pinned and recent are read-only — there is no pin()/unpin() after registering, so a pin is a registration decision."
+			code={REGISTRY_CODE}
+		>
+			<div class="grid gap-3">
+				<ul class="grid gap-1.5 text-sm" data-testid="command-registry">
+					<template x-for="entry in $store.command.visibleItems" :key="entry.id">
+						<li class="flex flex-wrap items-center gap-2 rounded-md border border-[var(--ios-separator)] px-3 py-2">
+							<strong x-text="entry.item.label"></strong>
+							<span class="text-xs text-[var(--ios-label-secondary)]" x-text="entry.item.group"></span>
+							<span class="text-xs text-[var(--ios-label-tertiary)]" x-text="'rank ' + entry.rank"></span>
+							<span class="text-xs text-[var(--ios-blue)]" x-show="entry.pinned" x-cloak>pinned</span>
+							<span class="text-xs text-[var(--ios-orange)]" x-show="entry.recent" x-cloak>recent</span>
+							<span class="text-xs text-[var(--ios-label-secondary)]" x-show="entry.loading" x-cloak>loading</span>
+							<span class="text-xs text-[var(--ios-label-tertiary)]" x-show="entry.disabled" x-cloak>disabled</span>
+						</li>
+					</template>
+				</ul>
+
+				<div class="flex flex-wrap gap-2">
+					<DemoButton size="sm" @click="$store.command.run('export-report')">Run the async command</DemoButton>
+					<DemoButton size="sm" @click="$store.command.run('disabled-demo')">Run the disabled one</DemoButton>
+				</div>
+
+				<p class="text-xs text-[var(--ios-label-secondary)]">
+					executionState: <strong x-text="$store.command.executionState"></strong> · runningId:
+					<strong x-text="$store.command.runningId ?? '—'"></strong> · loadingIds:
+					<strong x-text="$store.command.loadingIds.join(', ') || '—'"></strong> · pinnedIds:
+					<strong x-text="$store.command.pinnedIds.join(', ') || '—'"></strong> · recentIds:
+					<strong x-text="$store.command.recentIds.join(', ') || '—'"></strong>
+				</p>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Nested pages: load() registers that page's commands"
+			note="A command can open another command page instead of doing something. The pageStack is the stack — Backspace with an empty search _pops_ it."
+			code={PAGES_CODE}
+		>
+			<div class="grid gap-3">
+				<div class="flex flex-wrap gap-2">
+					<DemoButton
+						size="sm"
+						@click={`$store.command.pushPage({
+							id: 'docs',
+							title: 'Docs',
+							load: () => {
+								if (!('docs-copy' in $store.command.items)) {
+									$store.command.register({
+										id: 'docs-copy',
+										label: 'Copy link',
+										page: 'docs',
+										action: () => navigator.clipboard.writeText(location.href),
+									});
+								}
+							},
+						})`}
+					>
+						Open the "Docs" page
+					</DemoButton>
+					<DemoButton size="sm" variant="ghost" @click="$store.command.goBack()">Back</DemoButton>
+					<DemoButton size="sm" variant="ghost" @click="$store.command.close()">Reset the stack</DemoButton>
+				</div>
+
+				<p class="text-xs text-[var(--ios-label-secondary)]">
+					currentPageId: <strong x-text="$store.command.currentPageId"></strong> · pageStack:
+					<strong x-text="$store.command.pageStack.join(' → ')"></strong>
+				</p>
+				<p class="text-sm">
+					Commands on this page:
+					<strong x-text="$store.command.filteredItems.map(i => i.label).join(', ') || '—'"></strong>
+				</p>
+				<p class="text-xs text-[var(--ios-label-tertiary)]">
+					Open the palette with <Kbd>⌘K</Kbd> to see the page. And notice why this
+					example calls <code>pushPage()</code> directly instead of from a command that
+					pushes it: <code>close()</code> returns the stack to <code>["root"]</code>, so
+					with <code>closeOnRun</code> on the nested page is lost before it is seen.
+				</p>
+			</div>
+		</DemoExample>
+	</div>
+</DemoSection>

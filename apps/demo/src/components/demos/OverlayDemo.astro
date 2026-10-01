@@ -1,0 +1,206 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("overlay")!;
+
+const STACK_CODE = `<ul>
+  <template x-for="entry in $store.overlay.stack" :key="entry.plugin + ':' + entry.id">
+    <li>
+      <code x-text="entry.plugin + ':' + entry.id"></code>
+      — z-index <span x-text="entry.zIndex"></span>
+      <button @click="$store.overlay.unregister(entry.plugin, entry.id)">release</button>
+    </li>
+  </template>
+</ul>`;
+
+const PORTAL_CODE = `<!-- x-teleport moves the node to the end of the body, so it escapes
+     any overflow:hidden on an ancestor. -->
+<template x-teleport="#overlay-root">
+  <div
+    x-show="bannerOpen" x-cloak
+    :style="{ zIndex: $store.overlay.zIndexOf('overlay-demo', 'banner') }"
+  >
+    <div class="rounded-md border px-4 py-2 shadow-lg">Banner</div>
+  </div>
+</template>
+
+// Careful: without claim(), zIndexOf() returns the base ALWAYS — it is a pure
+// read, it does not reserve a layer. The banner would look just as good and
+// would sit below any overlay that did take one.
+toggleBanner(open) {
+  this.bannerOpen = open;
+  if (open) $store.overlay.claim('overlay-demo', 'banner');
+  else $store.overlay.unregister('overlay-demo', 'banner');
+}`;
+
+const CONFIGURE_CODE = `// Empty the stack FIRST: with entries in it, a different baseZIndex throws.
+for (const e of [...$store.overlay.stack]) {
+  $store.overlay.unregister(e.plugin, e.id);
+  // And close whatever is left visible: otherwise the node stays on screen
+  // with no slot, and zIndexOf() silently falls back to the base value.
+}
+
+$store.overlay.configure({ baseZIndex: 5000, step: 50 });
+const z = $store.overlay.claim('overlay-demo', 'high-priority'); // → 5000`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<div
+		class="grid gap-6"
+		x-data="{
+			bannerOpen: false,
+			lastZ: null,
+			configError: null,
+			noticeCounter: 0,
+			allocateSlot() {
+				const id = 'notice-' + (++this.noticeCounter);
+				const z = $store.overlay.claim('demo', id);
+				$store.toast.push({ title: 'Allocated z=' + z });
+			},
+			releaseLastSlot() {
+				const stack = $store.overlay.stack;
+				const last = stack[stack.length - 1];
+				if (last) $store.overlay.unregister(last.plugin, last.id);
+			},
+			toggleBanner(value) {
+				this.bannerOpen = value;
+				if (value) $store.overlay.claim('overlay-demo', 'banner');
+				else $store.overlay.unregister('overlay-demo', 'banner');
+			},
+			reconfigureAndClaim() {
+				// `configure()` rejects a new baseZIndex/step while the stack is
+				// non-empty, so release every entry first.
+				//
+				// The banner is released here too — it used to be left claimed while
+				// still on screen, so `x-show` kept it visible but `zIndexOf` no
+				// longer found its slot and it silently fell back to the base
+				// z-index, losing its stacking position. Anything the stack is
+				// about to be reconfigured away from has to be closed, not just
+				// unregistered, or the two disagree.
+				this.bannerOpen = false;
+				for (const entry of [...$store.overlay.stack]) {
+					$store.overlay.unregister(entry.plugin, entry.id);
+				}
+				$store.overlay.configure({ baseZIndex: 5000, step: 50 });
+				const z = $store.overlay.claim('overlay-demo', 'high-priority');
+				this.lastZ = z;
+				$store.toast.push({ title: 'Allocated z=' + z + ' (base=5000 step=50)' });
+			},
+			configureWhileBusy() {
+				// The demo used to only *describe* this throw while its own button
+				// released the stack first — so the reader was told about an error
+				// they could never see. This claims a slot and then reconfigures
+				// without releasing, which is the case the guard exists for.
+				this.configError = null;
+				$store.overlay.claim('overlay-demo', 'busy');
+				try {
+					$store.overlay.configure({ baseZIndex: 9000 });
+					this.configError = 'configure() did NOT throw — that should not happen.';
+				} catch (e) {
+					this.configError = e instanceof Error ? e.message : String(e);
+				} finally {
+					$store.overlay.unregister('overlay-demo', 'busy');
+				}
+			},
+		}"
+	>
+		<DemoExample
+			title="The overlay stack"
+			note="Every open overlay takes a slot and the store tells you which one. The order of the list is the stacking order: the last item in the list is on top."
+			open
+			code={STACK_CODE}
+		>
+			<p class="text-xs text-[var(--ios-label-secondary)] mb-3">
+				Open overlays: <strong x-text="$store.overlay.count"></strong>
+			</p>
+			<ul
+				class="text-xs text-[var(--ios-label-secondary)] list-disc pl-5 space-y-1"
+				data-testid="overlay-stack"
+			>
+				<template x-for="entry in $store.overlay.stack" :key="entry.plugin + ':' + entry.id">
+					<li>
+						<code x-text="entry.plugin + ':' + entry.id"></code>
+						— z-index <span x-text="entry.zIndex"></span>
+						<DemoButton
+							variant="link"
+							size="xs"
+							class="ml-2 h-auto px-0"
+							@click="$store.overlay.unregister(entry.plugin, entry.id)"
+						>
+							release
+						</DemoButton>
+					</li>
+				</template>
+			</ul>
+
+			<p class="mt-3 text-xs text-[var(--ios-label-secondary)]">
+				<code>claim(plugin, id)</code> returns the z-index and adds the entry to the
+				stack. It is idempotent: calling it twice with the same key returns the
+				same value.
+			</p>
+			<div class="mt-2 flex flex-wrap gap-2">
+				<DemoButton @click="allocateSlot()">Claim a new slot</DemoButton>
+				<DemoButton variant="destructive" @click="releaseLastSlot()">Release last slot</DemoButton>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Rendering through the portal"
+			note="x-teleport moves the node to the container at the end of the body, so an overlay escapes any overflow:hidden on an ancestor. The z-index comes from the store, not from a number typed by hand."
+			code={PORTAL_CODE}
+		>
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="toggleBanner(true)">Show banner</DemoButton>
+				<DemoButton variant="destructive" @click="toggleBanner(false)">Hide banner</DemoButton>
+			</div>
+
+			<template x-teleport="#overlay-root">
+				<div
+					x-show="bannerOpen" x-cloak
+					x-transition.opacity
+					class="fixed inset-x-0 top-0 flex justify-center p-4"
+					:style="{ zIndex: $store.overlay.zIndexOf('overlay-demo', 'banner') }"
+				>
+					<div class="rounded-md border bg-[var(--ios-bg-elevated)] px-4 py-2 text-sm shadow-lg">
+						Banner rendered inside <code>#overlay-root</code>
+					</div>
+				</div>
+			</template>
+		</DemoExample>
+
+		<DemoExample
+			title="configure(): reordering the stacking"
+			note="You can only reconfigure with an EMPTY stack: otherwise changing baseZIndex or step throws. That is why this button releases everything before configuring — and so you can see the throw, there is a separate button that triggers it."
+			code={CONFIGURE_CODE}
+		>
+			<DemoButton @click="reconfigureAndClaim()">Reconfigure and claim (releases first)</DemoButton>
+			<DemoButton variant="destructive" @click="configureWhileBusy()">
+				configure() with the stack busy
+			</DemoButton>
+			<p class="text-xs text-[var(--ios-label-secondary)] mt-2" x-show="lastZ !== null" x-cloak>
+				Last z-index assigned: <strong x-text="lastZ"></strong>
+			</p>
+			<p
+				class="mt-2 rounded-md bg-[var(--ios-fill-quaternary)] p-2 font-mono text-xs"
+				x-show="configError"
+				x-cloak
+			>
+				<span x-text="configError"></span>
+			</p>
+		</DemoExample>
+
+		<div>
+			<ul class="text-xs text-[var(--ios-label-secondary)] list-disc pl-5 space-y-1">
+				<li><code>DialogDemo</code>, <code>MenuDemo</code>, <code>TooltipDemo</code>, <code>CommandDemo</code> all teleport to <code>#overlay-root</code></li>
+				<li>The portal is a <code>&lt;div id="overlay-root"&gt;</code> in the layout — the demo always mounts it, including during SSR, so <code>x-teleport</code> has a destination from the first render</li>
+				<li>
+					<code>configure()</code> changes <code>root</code>, <code>baseZIndex</code>, and <code>step</code> — but only
+					while the stack is empty
+				</li>
+			</ul>
+		</div>
+	</div>
+</DemoSection>

@@ -1,0 +1,59 @@
+---
+import { getFamily } from "../../../catalog/index.js";
+import { buildPlaygroundFamilyGroups } from "../../../catalog/playground-navigation.js";
+import PermissionsFamilyPanel from "../../../components/families/PermissionsFamilyPanel.astro";
+import QueryStackFamilyPanel from "../../../components/families/QueryStackFamilyPanel.astro";
+import PlaygroundModuleCard from "../../../components/PlaygroundModuleCard.astro";
+import PlaygroundLayout from "../../../layouts/PlaygroundLayout.astro";
+
+export function getStaticPaths() {
+  return buildPlaygroundFamilyGroups().map((family) => ({
+    params: { family: family.id },
+    props: { familyId: family.id },
+  }));
+}
+
+const { familyId } = Astro.props;
+const familyGroup = buildPlaygroundFamilyGroups().find((entry) => entry.id === familyId);
+const family = getFamily(familyId);
+
+if (!familyGroup || !family) {
+  throw new Error(`Unknown playground family: ${familyId}`);
+}
+---
+
+<PlaygroundLayout title={`${family.title} · Playground`} description={family.summary} activePlugin={familyId}>
+  <nav class="mb-4 text-sm text-[var(--ios-label-secondary)]" aria-label="Breadcrumb">
+    <ol class="flex flex-wrap items-center gap-1.5">
+      <li><a href="/" class="hover:text-[var(--ios-label)]">Playground</a></li>
+      <li aria-hidden="true">/</li>
+      <li aria-current="page" class="font-medium text-[var(--ios-label)]">{family.title}</li>
+    </ol>
+  </nav>
+
+  <header class="mb-8">
+    <h1 class="text-3xl font-bold tracking-tight">{family.title}</h1>
+    <p class="mt-2 max-w-2xl text-sm text-[var(--ios-label-secondary)]">{family.summary}</p>
+  </header>
+
+  {familyId === "permissions" ? (
+    <PermissionsFamilyPanel />
+  ) : familyId === "query-stack" ? (
+    <QueryStackFamilyPanel />
+  ) : (
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {
+        familyGroup.entries.map((entry) => (
+          <PlaygroundModuleCard item={{
+            id: entry.id,
+            title: entry.title,
+            package: entry.npmPackage,
+            api: entry.api,
+            kind: entry.surface,
+            description: entry.summary,
+          }} />
+        ))
+      }
+    </div>
+  )}
+</PlaygroundLayout>

@@ -1,0 +1,252 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import Kbd from "../astro/Kbd.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("menu")!;
+const itemClasses =
+	"block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-[var(--ios-fill-quaternary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ios-blue)]";
+const menuIds = "['user-menu', 'actions-menu', 'sticky-menu']";
+const menuData = `{
+	userIds: ['profile', 'settings', 'billing', 'logout'],
+	actionIds: ['save', 'duplicate', 'delete'],
+	init() {
+		$store.menu.create('user-menu', {
+			orientation: 'vertical',
+			onSelect: (id) => $store.toast.push({ title: 'Selected ' + id }),
+		});
+		this.userIds.forEach((id) => $store.menu.createItem('user-menu', id));
+		$store.menu.create('actions-menu', {
+			orientation: 'vertical',
+			onSelect: (id) => $store.toast.push({ title: 'Action: ' + id }),
+		});
+		this.actionIds.forEach((id) => $store.menu.createItem('actions-menu', id));
+		// closeOnSelect: false → the menu does NOT close on select. Useful for
+		// toggle menus or a list of checkboxes, where closing on every click
+		// is wrong.
+		$store.menu.create('sticky-menu', {
+			orientation: 'vertical',
+			closeOnSelect: false,
+			onSelect: (id) => $store.toast.push({ title: 'Toggled ' + id }),
+		});
+		['notifications', 'sounds', 'beta'].forEach((id) =>
+			$store.menu.createItem('sticky-menu', id)
+		);
+	},
+	activeMenuItem() {
+		for (const id of ${menuIds}) {
+			if ($store.menu.isOpen(id)) return $store.menu.activeItem(id);
+		}
+		return '—';
+	},
+}`;
+
+const DIRECTIVE_CODE = `x-data="{
+  userIds: ['profile', 'settings', 'billing'],
+  init() {
+    $store.menu.create('user-menu', { orientation: 'vertical' });
+    this.userIds.forEach(id => $store.menu.createItem('user-menu', id));
+  },
+}"
+<!-- The keyboard is NOT set up by the directive: you have to route it. -->
+@keydown.window="$store.menu.handleWindowKeydown($event, ['user-menu'])"
+
+<!-- TRIGGER: it writes aria-haspopup + aria-expanded itself, and the click
+     goes through controller.toggle(), so closeOnSelect and the select event
+     keep working. -->
+<button type="button" x-ref="userTrigger" x-menu.trigger="'user-menu'">
+  Account
+</button>
+
+<!-- PANEL: it binds the container, listens for the outside click on document
+     (capture phase) and releases the reference when the element leaves the tree. -->
+<ul x-menu="'user-menu'"
+    x-show="$store.menu.isOpen('user-menu')" x-cloak x-transition
+    x-anchor.bottom-start.offset.8.fixed="$refs.userTrigger"
+    class="min-w-48 rounded-md border p-1 shadow-md">
+  <template x-for="id in userIds" :key="id">
+    <li><button type="button"
+        x-menu.item="'user-menu:' + id"   <!-- Careful: menuId:itemId in ONE token;
+                                            a directive does not take two arguments -->
+        x-bind="$store.menu.itemProps('user-menu', id)"
+        x-text="id"></button></li>
+  </template>
+</ul>`;
+
+const STICKY_CODE = `$store.menu.create('sticky-menu', {
+  orientation: 'vertical',
+  // With false, selectItem() does NOT close: it keeps emitting 'select' and
+  // onSelect, but leaves the menu expanded — what a toggle menu needs.
+  closeOnSelect: false,
+  onSelect: (id) => $store.toast.push({ title: 'Toggled ' + id }),
+});
+['notifications', 'sounds', 'beta'].forEach(id =>
+  $store.menu.createItem('sticky-menu', id)
+);
+
+<!-- Without this, moving focus with the keyboard neither enters the button
+     above nor leaves it: the package does not move real focus, only the
+     roving tabindex. -->
+<div @keydown.window="$store.menu.handleWindowKeydown($event, ['sticky-menu'])"></div>`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<div
+		class="grid gap-6"
+		x-data={menuData}
+		@keydown.window={`$store.menu.handleWindowKeydown($event, ${menuIds})`}
+	>
+		<DemoExample
+			title="One x-menu, three roles: trigger, panel and item"
+			note="All three are modifiers of the SAME directive — Alpine's regex stops at the first dot, so x-menu.trigger is not another key. Compare it with the hand-wiring it replaces: bindTrigger + bindMenu + three @click + the per-attribute itemTabIndex/itemDisabled."
+			open
+			code={DIRECTIVE_CODE}
+		>
+			<div>
+				<p class="mb-3 text-xs text-[var(--ios-label-secondary)]">
+					By default, opening one menu closes any other. Account:
+					<strong x-text="$store.menu.isOpen('user-menu')"></strong> · Actions:
+					<strong x-text="$store.menu.isOpen('actions-menu')"></strong> · Active:
+					<strong x-text="activeMenuItem()"></strong>
+				</p>
+				<div class="flex flex-wrap gap-2">
+					<DemoButton x-ref="userMenuTrigger" x-menu.trigger="'user-menu'" data-testid="menu-trigger">
+						Account
+					</DemoButton>
+					<DemoButton x-ref="actionsMenuTrigger" x-menu.trigger="'actions-menu'">
+						Actions
+					</DemoButton>
+				</div>
+
+				<template x-teleport="#overlay-root">
+					<ul
+						x-menu="'user-menu'"
+						x-show="$store.menu.isOpen('user-menu')"
+						x-cloak
+						x-transition
+						x-anchor.bottom-start.offset.8.fixed="$refs.userMenuTrigger"
+						x-bind="$store.menu.menuProps('user-menu')"
+						x-bind:aria-hidden="$store.menu.menuHidden('user-menu')"
+						class="min-w-48 rounded-md border bg-[var(--ios-bg-elevated)] p-1 shadow-md"
+						:style="{ zIndex: $store.overlay.zIndexOf('menu', 'user-menu') }"
+					>
+						<template x-for="id in userIds" :key="id">
+							<li>
+								<button
+									type="button"
+									class={itemClasses}
+									x-menu.item="'user-menu:' + id"
+									x-bind="$store.menu.itemProps('user-menu', id)"
+									:class="$store.menu.activeItem('user-menu') === id ? 'bg-[var(--ios-fill-quaternary)]' : ''"
+									x-text="id"
+								></button>
+							</li>
+						</template>
+					</ul>
+				</template>
+
+				<template x-teleport="#overlay-root">
+					<ul
+						x-menu="'actions-menu'"
+						x-show="$store.menu.isOpen('actions-menu')"
+						x-cloak
+						x-transition
+						x-anchor.bottom-start.offset.8.fixed="$refs.actionsMenuTrigger"
+						x-bind="$store.menu.menuProps('actions-menu')"
+						x-bind:aria-hidden="$store.menu.menuHidden('actions-menu')"
+						class="min-w-48 rounded-md border bg-[var(--ios-bg-elevated)] p-1 shadow-md"
+						:style="{ zIndex: $store.overlay.zIndexOf('menu', 'actions-menu') }"
+					>
+						<template x-for="id in actionIds" :key="id">
+							<li>
+								<button
+									type="button"
+									class={itemClasses}
+									x-menu.item="'actions-menu:' + id"
+									x-bind="$store.menu.itemProps('actions-menu', id)"
+									:class="$store.menu.activeItem('actions-menu') === id ? 'bg-[var(--ios-fill-quaternary)]' : ''"
+									x-text="id"
+								></button>
+							</li>
+						</template>
+					</ul>
+				</template>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="A menu that does not close on select"
+			note="Pick two things in a row: the toast appears twice and the menu stays there. That is the difference between an action menu and a toggle menu, and it is a field of create() — the markup does not change."
+			code={STICKY_CODE}
+		>
+			<div>
+				<div class="mt-2">
+					<DemoButton x-ref="stickyMenuTrigger" x-menu.trigger="'sticky-menu'">
+						closeOnSelect: false
+					</DemoButton>
+				</div>
+
+				<template x-teleport="#overlay-root">
+					<ul
+						x-menu="'sticky-menu'"
+						x-show="$store.menu.isOpen('sticky-menu')"
+						x-cloak
+						x-transition
+						x-anchor.bottom-start.offset.8.fixed="$refs.stickyMenuTrigger"
+						x-bind="$store.menu.menuProps('sticky-menu')"
+						x-bind:aria-hidden="$store.menu.menuHidden('sticky-menu')"
+						class="min-w-48 rounded-md border bg-[var(--ios-bg-elevated)] p-1 shadow-md"
+						:style="{ zIndex: $store.overlay.zIndexOf('menu', 'sticky-menu') }"
+					>
+						<template x-for="id in ['notifications', 'sounds', 'beta']" :key="id">
+							<li>
+								<button
+									type="button"
+									class={itemClasses}
+									x-menu.item="'sticky-menu:' + id"
+									x-bind="$store.menu.itemProps('sticky-menu', id)"
+									:class="$store.menu.activeItem('sticky-menu') === id ? 'bg-[var(--ios-fill-quaternary)]' : ''"
+									x-text="id"
+								></button>
+							</li>
+						</template>
+					</ul>
+				</template>
+			</div>
+		</DemoExample>
+
+		<div>
+			<h3 class="text-sm font-medium mb-2">What the store owns, and what it does not</h3>
+			<ul class="text-xs text-[var(--ios-label-secondary)] list-disc pl-5 space-y-1">
+				<li>
+					<code>exclusive: true</code> (default) — <code>open()</code> /
+					<code>toggle()</code> close every other open menu. Pass
+					<code>exclusive: false</code> to <code>menuPlugin()</code> for independent menus
+				</li>
+				<li>
+					<Kbd>↑</Kbd>/<Kbd>↓</Kbd> move the active item on a vertical menu,
+					<Kbd>←</Kbd>/<Kbd>→</Kbd> on a horizontal one, <Kbd>Home</Kbd>/<Kbd>End</Kbd> jump to
+					the ends, <Kbd>Enter</Kbd> selects and <Kbd>Escape</Kbd> closes. The mismatched
+					arrow pair is left to the page
+				</li>
+				<li>
+					Moving the <em>active item</em> is the store's job; moving real DOM focus is not.
+					<code>handleKeydown()</code> never calls <code>focus()</code> — the browser follows
+					the roving <code>tabindex</code> <code>x-menu.item</code> writes, and only if focus
+					was already inside the menu. <code>close()</code> <em>is</em> the exception: it
+					returns focus to the trigger, and only when focus was inside.
+				</li>
+				<li>
+					Position with <code>x-anchor.bottom-start.fixed</code> via
+					<code>@alpinejs/anchor</code> — the store owns the active item and the ARIA wiring
+				</li>
+				<li>
+					<code>parentId</code> exists on the type and is stored, but nothing reads it: there
+					are no submenus in this package
+				</li>
+			</ul>
+		</div>
+	</div>
+</DemoSection>

@@ -1,0 +1,66 @@
+---
+/**
+ * One example inside a demo: collapsed by default, and once opened it shows the
+ * working example together with the code that produces it.
+ *
+ * Why a code block at all: several of these demos read as magic. `$store.x`
+ * handing back a list, a store that owns a scroll lock, a palette that filters
+ * as you type — none of that is inferable from the rendered result. Seeing the
+ * markup and the calls that made it is the difference between "I can use this"
+ * and "I don't know what this does".
+ *
+ * Collapsed by default so a page with a dozen examples stays scannable. Pass
+ * `open` for the example that carries the page's point, and for any example
+ * that measures its own layout: content inside a closed `<details>` has no box,
+ * so a virtualised list or a carousel viewport starts at zero height and the
+ * engine has to re-measure after opening.
+ */
+interface Props {
+  /** What this example demonstrates. */
+  title: string;
+  /**
+   * The source that produces the example, copy-pasteable. Shown inside the
+   * opened example, directly under it, so the two are read together.
+   */
+  code?: string;
+  /** One line on when you would reach for this rather than plain Alpine. */
+  note?: string;
+  /** Start expanded. Use for the page's headline example and measured layouts. */
+  open?: boolean;
+  class?: string;
+}
+
+const { title, code, note, open = false, class: className, ...rest } = Astro.props;
+---
+
+<details
+	open={open}
+	class:list={["group rounded-lg border border-border", className]}
+	{...rest}
+>
+	<summary
+		class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm font-medium hover:bg-[var(--ios-fill-quaternary)] [&::-webkit-details-marker]:hidden"
+	>
+		<span>{title}</span>
+		<span
+			class="shrink-0 text-xs font-normal text-[var(--ios-label-tertiary)] transition-transform group-open:rotate-90"
+			aria-hidden="true"
+		>
+			›
+		</span>
+	</summary>
+	<div class="space-y-3 border-t border-border p-3">
+		{note && <p class="text-xs text-[var(--ios-label-secondary)] text-pretty">{note}</p>}
+		<slot />
+		{
+			code && (
+				<div>
+					<p class="mb-1 text-[10px] font-semibold tracking-wide text-[var(--ios-label-tertiary)] uppercase">
+						Código
+					</p>
+					<pre class="overflow-x-auto rounded-md bg-[var(--ios-fill-quaternary)] p-3 text-xs leading-relaxed"><code>{code}</code></pre>
+				</div>
+			)
+		}
+	</div>
+</details>

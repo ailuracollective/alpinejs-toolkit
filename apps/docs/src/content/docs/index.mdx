@@ -1,0 +1,98 @@
+---
+title: Alpine.js Toolkit
+description: 40 Alpine.js packages. Controllers own state; Alpine owns reactivity.
+template: splash
+---
+
+import { Aside, Card, CardGrid } from "@astrojs/starlight/components";
+import { ContainerSection, HeroX } from "@six-tech/starlight-theme-six/components";
+
+import logoMark from "../../assets/logo-dark.svg";
+import logoMarkDark from "../../assets/logo.svg";
+
+{/*
+`title` and `tagline` are omitted on purpose: HeroX falls back to the `title`
+and `description` frontmatter above, which is what the reference project does
+too. Keep the promise in one place.
+
+In MDX a bare `//` line is not a comment, it is a paragraph of text, and it
+renders on the page. Comments here have to be JSX expressions -- and `**\/*.mdx`
+is excluded from `vp fmt` in vite.config.ts, because the formatter escapes the
+`/*` below to `/\*` and MDX then fails to parse it, breaking the docs build.
+*/}
+
+<HeroX
+  mt="2rem"
+  height={400}
+  radius="1.5rem"
+  titleColor="#f7f4ff"
+  taglineColor="#ddd0fb"
+  image={{
+    light: logoMark,
+    dark: logoMarkDark,
+    alt: "Alpine.js Toolkit logo",
+    // The mark is square — HeroX defaults the missing dimension to 400, so both
+    // have to be set or the logo renders stretched.
+    width: 220,
+    height: 220,
+  }}
+  actions={[
+    { text: "Get Started", link: "/guide/getting-started/", variant: "primary" },
+    {
+      text: "Source on GitHub",
+      link: "https://github.com/ailuracollective/alpinejs-toolkit",
+      variant: "minimal",
+      attrs: { target: "_blank", rel: "noopener noreferrer" },
+    },
+  ]}
+/>
+
+<ContainerSection px="0" py="0" mt="3rem">
+  <h2 id="pick-a-layer">Pick a layer</h2>
+  <CardGrid>
+    <Card title="Foundation" icon="document">
+      Core controllers, guards, SSR helpers, the state machine, UI primitives, and the test tooling
+      everything else builds on. See [Foundation](/plugins/foundation/).
+    </Card>
+    <Card title="Primitives" icon="puzzle">
+      Env, media, language, permissions, selection, gesture, keyboard, history, timer, toast, and
+      more — headless building blocks with no visual opinion. See
+      [Primitives](/plugins/primitives/).
+    </Card>
+    <Card title="Features" icon="rocket">
+      Accessible accordion, tabs, dialog, menu, tooltip, carousel, command palette, theme, sidebar,
+      and virtual list. See [Features](/plugins/features/).
+    </Card>
+    <Card title="Data" icon="database">
+      Query cache, adapters, and a JSON:API client for async and remote state. See
+      [Data](/plugins/data/).
+    </Card>
+  </CardGrid>
+</ContainerSection>
+
+<ContainerSection px="0" py="0" mt="3rem">
+  <h2 id="one-canon">One canon, thirty-nine packages</h2>
+
+Every package is the same shape: a framework-agnostic controller owns the
+state, and a thin plugin syncs it into an Alpine store, magic, or directive.
+
+```ts
+import Alpine from "alpinejs";
+import accordion from "@ailura/alpinejs-accordion";
+
+Alpine.plugin(accordion());
+
+Alpine.start();
+```
+
+Because the shape is shared, the documentation is too. Every package page
+follows the same order — install, register, a working example, the API table —
+so the first page you read teaches you the other thirty-eight.
+
+  <Aside type="tip" title="Where to go from here">
+    [Getting Started](/guide/getting-started/) is the mechanical path: install,
+    register, call. [Architecture](/guide/architecture/) is the reasoning behind
+    the snippet above — the controller lifecycle, the registration guards, and
+    the SSR rules. Pick a layer above and start there instead.
+  </Aside>
+</ContainerSection>

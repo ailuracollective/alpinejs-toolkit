@@ -1,0 +1,32 @@
+{
+  "name": "alpinejs-toolkit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp run --filter docs dev",
+    "dev:demo": "vp run --filter @ailura/demo dev",
+    "build": "vp run --recursive build",
+    "test": "vp test",
+    "typecheck": "vp run --recursive typecheck",
+    "lint": "vp lint",
+    "format": "vp fmt",
+    "check": "vp check",
+    "size": "vp run --recursive --concurrency-limit 2 size",
+    "size:why": "vp run --recursive size:why",
+    "clean": "rm -rf node_modules packages/*/node_modules apps/*/node_modules packages/*/dist apps/*/dist *.tsbuildinfo packages/*/*.tsbuildinfo apps/*/*.tsbuildinfo",
+    "new:plugin": "node ./scripts/new-plugin.mjs"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@size-limit/preset-small-lib": "^13.1.1",
+    "@types/node": "^22.20.4",
+    "alpinejs": "^3.17.4",
+    "happy-dom": "^20.14.5",
+    "publint": "^0.3.24",
+    "size-limit": "^13.1.1",
+    "typescript": "^5.9.3",
+    "vite-plus": "^0.3.3"
+  },
+  "packageManager": "pnpm@12.3.4"
+}

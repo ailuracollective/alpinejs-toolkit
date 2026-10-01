@@ -1,0 +1,11 @@
+[
+  {
+    "name": "carousel full surface",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "12 kB",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core", "embla-carousel", "embla-carousel-autoplay"],
+    "gzip": true,
+    "brotli": true
+  }
+]

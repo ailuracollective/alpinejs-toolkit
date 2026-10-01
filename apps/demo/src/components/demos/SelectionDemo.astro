@@ -1,0 +1,151 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("selection")!;
+
+// The page mounts an Alpine.data from src/demo/selection-demo.ts, so the
+// sample is the markup that mounts it — not its internals. The block below is
+// where the x-selection trap is documented, because the shape that comes out of
+// the package's JSDoc does not start.
+const SELECTION_CODE = `<!-- selectionDemo is an Alpine.data from src/demo/selection-demo.ts:
+     it creates the 'demo' instance in init() and maps click / Ctrl / Shift
+     onto select(id, key, { behavior }). -->
+<div x-data="selectionDemo">
+
+  <button @click="setMode('single')">Single</button>
+  <button @click="setMode('multiple')">Multiple</button>
+  <button @click="setMode('range')">Range</button>
+  <button @click="$store.selection.selectAll('demo')">Select all</button>
+  <button @click="$store.selection.clear('demo')">Clear</button>
+
+  <ul role="listbox" :aria-multiselectable="$store.selection.instances.demo?.mode !== 'single'">
+    <template x-for="item in items" :key="item">
+      <li role="presentation">
+        <!-- role and aria-multiselectable are written in the markup, but
+             aria-selected CANNOT go in an object-form x-bind: Alpine evaluates
+             x-bind="{…}" only once, so it would stay frozen at its first
+             value. Per attribute, it can. -->
+        <!-- The :class comes from itemClass(), which in the demo composes the
+             style with the same read helpers the store exposes — isSelected,
+             isActive, isSelectable — instead of re-deriving them from the
+             snapshot. -->
+        <button
+          type="button"
+          role="option"
+          :class="itemClass(item)"
+          :disabled="!$store.selection.isSelectable('demo', item)"
+          :aria-selected="$store.selection.isSelected('demo', item)"
+          :data-selected="$store.selection.isSelected('demo', item) ? '' : null"
+          @click="pick($event, item)"
+          x-text="item"
+        ></button>
+      </li>
+    </template>
+  </ul>
+
+  <p x-text="\`Selected: \${$store.selection.instances.demo?.selectedKeys.join(', ') || 'none'}\`"></p>
+</div>
+
+<!-- Careful: the x-selection trap.
+     x-selection="files" THROWS. The value is evaluated as a JS expression, so
+     'files' is looked up as a variable: ReferenceError: files is not defined.
+     The two forms that work are the id in quotes — which returns the string
+     'files' — or the options object:
+
+       x-selection="'files'"        → instance with id 'files'
+       x-selection="{ id: 'files' }" → the same, and it takes the rest of the bag
+
+     The generated id is read off the element: el.dataset.selectionId. -->
+<ul>
+  <li x-selection="'files'" role="listbox">
+    <template x-for="f in files" :key="f">
+      <button
+        role="option"
+        :aria-selected="$store.selection.isSelected($el.dataset.selectionId, f)"
+        @click="$store.selection.toggle($el.dataset.selectionId, f)"
+        x-text="f"
+      ></button>
+    </template>
+  </li>
+</ul>`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-xs text-[var(--ios-label-secondary)]">
+		Note the bindings: <code>role</code> and <code>aria-multiselectable</code> are written in
+		the markup, and <code>aria-selected</code> is bound per attribute. This package is a
+		selection primitive, not a widget — it ships no <code>*Props()</code> helper, because the
+		right role depends on the host (a <code>listbox</code>, a grid of checkboxes, a file table)
+		and an object-form <code>x-bind</code> is applied once anyway, which would freeze anything
+		live like <code>aria-selected</code>.
+	</p>
+
+	<p class="text-xs text-[var(--ios-label-secondary)]">
+		One entry point: <code>$store.selection.select(id, key, &#123; behavior &#125;)</code>, where
+		behavior is <code>replace</code>, <code>toggle</code> or <code>extend</code>. This demo
+		maps click / Ctrl-click / Shift-click onto those three and lets the store do the rest —
+		including refusing a disabled key. Bind with the read helpers
+		(<code>isSelected</code>, <code>isActive</code>, <code>isSelectable</code>, <code>isAnchor</code>)
+		rather than re-deriving from the snapshot. Charlie is disabled.
+	</p>
+
+	<DemoExample
+		title="One store, one select(), and the modifiers come from the package"
+		note="Reach for this instead of an array of booleans when a plain click already has to mean three different things. The store keeps the anchor, the active key and the range for you; the page above only maps a MouseEvent onto behavior."
+		open
+		code={SELECTION_CODE}
+	>
+		<div class="grid min-w-0 gap-4" x-data="selectionDemo">
+			<div class="flex flex-wrap items-center gap-2 text-xs" data-testid="selection-modes">
+				<span class="text-[var(--ios-label-secondary)]">Mode</span>
+				<DemoButton size="sm" @click="setMode('single')">Single</DemoButton>
+				<DemoButton size="sm" @click="setMode('multiple')">Multiple</DemoButton>
+				<DemoButton size="sm" @click="setMode('range')">Range</DemoButton>
+				<DemoButton size="sm" @click="$store.selection.selectAll('demo')">Select all</DemoButton>
+				<DemoButton size="sm" @click="$store.selection.clear('demo')">Clear</DemoButton>
+			</div>
+
+			<p
+				class="text-xs font-mono"
+				x-text="`Selected: ${$store.selection.instances.demo?.selectedKeys.join(', ') || 'none'}`"
+			></p>
+			<p class="text-xs text-[var(--ios-label-secondary)]" x-show="$store.selection.instances.demo" x-cloak>
+				Mode:
+				<span class="font-mono" x-text="$store.selection.instances.demo?.mode"></span>
+				· Active:
+				<span class="font-mono" x-text="$store.selection.instances.demo?.activeKey ?? '—'"></span>
+			</p>
+
+			<div class="flex items-center gap-2 text-xs">
+				<span class="text-[var(--ios-label-secondary)]">Serialized:</span>
+				<code class="rounded bg-[var(--ios-fill-quaternary)] px-1.5 py-0.5 font-mono" x-text="serialized() || '—'"></code>
+				<DemoButton size="sm" @click="copyUrl()">Copy URL</DemoButton>
+			</div>
+
+			<ul
+				class="grid gap-2 sm:grid-cols-2"
+				role="listbox"
+				aria-label="Selection demo"
+				:aria-multiselectable="$store.selection.instances.demo?.mode !== 'single'"
+			>
+				<template x-for="item in items" :key="item">
+					<li role="presentation">
+						<button
+							type="button"
+							role="option"
+							:class="itemClass(item)"
+							:disabled="!$store.selection.isSelectable('demo', item)"
+							:aria-selected="$store.selection.isSelected('demo', item)"
+							:data-selected="$store.selection.isSelected('demo', item) ? '' : null"
+							@click="pick($event, item)"
+							x-text="item"
+						></button>
+					</li>
+				</template>
+			</ul>
+		</div>
+	</DemoExample>
+</DemoSection>

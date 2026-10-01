@@ -1,0 +1,11 @@
+[
+  {
+    "name": "scroll full surface",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "4.5 kB",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core"],
+    "gzip": true,
+    "brotli": true
+  }
+]

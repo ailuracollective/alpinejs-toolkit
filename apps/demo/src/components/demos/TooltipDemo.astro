@@ -1,0 +1,319 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("tooltip")!;
+const buttonClasses =
+	"inline-flex min-w-28 items-center justify-center rounded-md border border-[var(--ios-separator)] bg-[var(--ios-bg-elevated)] px-3 py-2 text-sm font-medium hover:bg-[var(--ios-fill-quaternary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ios-blue)]";
+const tooltipClasses =
+	"pointer-events-none rounded-md border bg-[var(--ios-bg-elevated)] px-3 py-1.5 text-xs text-[var(--ios-label)] shadow-md";
+
+/**
+ * The eight placements, in the order the trigger grid lists them.
+ *
+ * This page used to carry eight copies of the same teleported tooltip block,
+ * identical apart from the `x-anchor` modifier — which is the one thing the
+ * example exists to show. `x-anchor`'s placement is a modifier, so it cannot be
+ * an expression, so each one does need its own element; it does not need 100
+ * lines of copy-paste to get one.
+ */
+const PLACEMENTS = [
+	"top",
+	"top-start",
+	"top-end",
+	"bottom",
+	"bottom-start",
+	"bottom-end",
+	"left",
+	"right",
+] as const;
+
+const TRIGGER_CODE = `<button type="button"
+        x-ref="save"
+        x-tooltip="'save-hint'"
+        aria-describedby="save-hint"
+        @keydown.escape="$store.tooltip.handleKeydown('save-hint', $event)">
+  Save
+</button>
+
+<!-- The panel and its ARIA are ours. The package generates no role, no
+     aria-describedby and no ids: only the BEHAVIOUR. -->
+<div id="save-hint" role="tooltip"
+     x-show="$store.tooltip.isOpen('save-hint')" x-cloak
+     x-anchor.top.fixed.noflip.offset.8="$refs.save">
+  Only drafts can be saved
+</div>
+
+<!-- What x-tooltip replaces: the five listeners
+     (mouseenter/mousemove/mouseleave/focus/blur), the record of the last
+     pointer position, the scroll watcher, creating the instance when the id is
+     new and releasing it when the element leaves the tree. With hand-written
+     @mouseenter/@mouseleave, a trigger that scrolls away under a still pointer
+     stays open forever: the browser does not re-dispatch pointer events
+     without real movement. -->
+
+<!-- Escape has to be routed: the directive does not listen for keys. -->`;
+
+const PLACEMENTS_CODE = `x-data="{
+  demos: [
+    { id: 'tip-top', placement: 'top', label: 'Top' },
+    { id: 'tip-left', placement: 'left', label: 'Left' },
+  ],
+  // The anchor needs the trigger element, and ONLY the anchor does: opening and
+  // closing belong to x-tooltip, not to this state.
+  activeTrigger: null,
+  activeId: null,
+  remember(el, id) {
+    this.activeTrigger = el;
+    this.activeId = id;
+  },
+}"
+
+<!-- There is no create() anywhere: the directive creates the instance when the
+     id is new, with openDelay/closeDelay at 0. -->
+<button type="button"
+        :aria-describedby="demo.id"
+        @mouseenter="remember($el, demo.id)"
+        @focus="remember($el, demo.id)"
+        x-tooltip="demo.id"
+        x-text="demo.label"></button>
+
+<!-- One teleported panel PER PLACEMENT: x-anchor's placement is a MODIFIER, not
+     an expression, so it cannot be resolved in a loop. Only the active one is
+     mounted, with an x-if. -->
+<template x-if="activeId === demo.id">
+  <template x-teleport="#overlay-root">
+    <div :id="demo.id" role="tooltip"
+         x-show="$store.tooltip.isOpen(activeId)" x-cloak
+         :style="{ zIndex: $store.overlay.zIndexOf('tooltip', activeId) }"
+         x-text="demo.placement"></div>
+  </template>
+</template>`;
+
+const SCROLL_CODE = `<!-- Without .sticky: it closes when the trigger scrolls away
+     from under the pointer. -->
+<button type="button" x-tooltip="'tip-scroll'">Closes on scroll-away</button>
+
+<!-- With .sticky: the modifier IS the markup shortcut for
+     closeOnScrollAway: false. Careful — if the instance already exists, the
+     directive does NOT recreate it and the modifier does nothing. That is why
+     the options bag is passed to the directive itself here. -->
+<button type="button"
+        x-tooltip.sticky="{ id: 'tip-sticky', openDelay: 0, closeDelay: 0 }">
+  Stays open
+</button>
+
+<!-- Inside a container with its own scroll, so you can see it without moving
+     the whole page. -->`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<div class="grid gap-8">
+		<DemoExample
+			title="x-tooltip attaches the trigger and releases it for you"
+			note="Hover it, then tab to it: mouseenter and focus do the same thing. Escape is routed by the markup, not by the directive. And the ARIA is ours — the package writes no role, no aria-describedby and no ids."
+			open
+			code={TRIGGER_CODE}
+		>
+			<div class="space-y-4">
+				<div class="flex flex-wrap gap-3">
+					<DemoButton
+						class={buttonClasses}
+						x-ref="save"
+						x-tooltip="'save-hint'"
+						aria-describedby="save-hint"
+						@keydown.escape="$store.tooltip.handleKeydown('save-hint', $event)"
+						data-testid="tooltip-trigger"
+					>
+						Save
+					</DemoButton>
+					<DemoButton
+						class={buttonClasses}
+						x-ref="publish"
+						x-tooltip.sticky="{ id: 'publish-hint', openDelay: 0, closeDelay: 0 }"
+						aria-describedby="publish-hint"
+					>
+						Publish (sticky)
+					</DemoButton>
+				</div>
+
+				<template x-teleport="#overlay-root">
+					<div
+						id="save-hint"
+						role="tooltip"
+						x-show="$store.tooltip.isOpen('save-hint')"
+						x-cloak
+						x-transition.duration.100ms
+						x-anchor.top.fixed.noflip.offset.8="$refs.save"
+						class={tooltipClasses}
+						:style="{ zIndex: $store.overlay.zIndexOf('tooltip', 'save-hint') }"
+					>
+						Only drafts can be saved
+					</div>
+					<div
+						id="publish-hint"
+						role="tooltip"
+						x-show="$store.tooltip.isOpen('publish-hint')"
+						x-cloak
+						x-transition.duration.100ms
+						x-anchor.top.fixed.noflip.offset.8="$refs.publish"
+						class={tooltipClasses}
+						:style="{ zIndex: $store.overlay.zIndexOf('tooltip', 'publish-hint') }"
+					>
+						x-tooltip.sticky — does not close on scroll-away
+					</div>
+				</template>
+
+				<p class="text-xs text-[var(--ios-label-secondary)]">
+					<strong>Open:</strong>
+					<strong
+						data-testid="tooltip-open"
+						x-text="$store.tooltip.isOpen('save-hint')"
+					></strong>
+					· the trigger is the only element the package touches. <code>role="tooltip"</code>,
+					<code>id</code> and <code>aria-describedby</code> were written by hand, because
+					nothing in the package generates them.
+				</p>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Hover or tab: the same behaviour, eight placements"
+			note="One x-tooltip per trigger with its own id — no create() anywhere, the directive creates the instance. The panel is teleported into #overlay-root and positioned by @alpinejs/anchor; the package never moves anything in the viewport."
+			code={PLACEMENTS_CODE}
+		>
+			<div
+				x-data="{
+					demos: [
+						{ id: 'tip-top', placement: 'top', label: 'Top' },
+						{ id: 'tip-top-start', placement: 'top-start', label: 'Top start' },
+						{ id: 'tip-top-end', placement: 'top-end', label: 'Top end' },
+						{ id: 'tip-bottom', placement: 'bottom', label: 'Bottom' },
+						{ id: 'tip-bottom-start', placement: 'bottom-start', label: 'Bottom start' },
+						{ id: 'tip-bottom-end', placement: 'bottom-end', label: 'Bottom end' },
+						{ id: 'tip-left', placement: 'left', label: 'Left' },
+						{ id: 'tip-right', placement: 'right', label: 'Right' },
+					],
+					// The anchor needs the trigger element, and only the anchor does:
+					// opening and closing belong to x-tooltip, not to this state.
+					activeTrigger: null,
+					activeId: null,
+					remember(el, id) {
+						this.activeTrigger = el;
+						this.activeId = id;
+					},
+				}"
+			>
+				<p class="mb-4 text-xs text-[var(--ios-label-secondary)]">
+					Hover or focus each trigger — then <strong>scroll the page without moving the
+					mouse</strong> and the tooltip closes. A pointer that does not move produces no
+					<code>mouseleave</code>, so the scroll itself is the cue. It only ever closes:
+					scrolling back does not re-open, that needs a real hover again. One teleported
+					panel per placement with <code>@alpinejs/anchor</code> — only the active one
+					mounts. Active: <strong x-text="activeId ?? '—'"></strong>
+				</p>
+
+				<div class="grid grid-cols-2 gap-4 sm:grid-cols-4" data-testid="tooltip-triggers">
+					<template x-for="demo in demos" :key="demo.id">
+						<div class="flex flex-col items-center gap-2 rounded-lg border border-dashed p-4">
+							<DemoButton
+								class={buttonClasses}
+								:aria-describedby="demo.id"
+								@mouseenter="remember($el, demo.id)"
+								@focus="remember($el, demo.id)"
+								x-tooltip="demo.id"
+								x-text="demo.label"
+							></DemoButton>
+							<code
+								class="text-[10px] text-[var(--ios-label-secondary)]"
+								x-text="demo.placement"
+							></code>
+						</div>
+					</template>
+				</div>
+
+				<!--
+					One block per placement: `x-anchor`'s placement is a modifier, not an
+					expression, so each needs its own element. See PLACEMENTS in the
+					frontmatter for why the other eleven lines are not repeated eight times.
+				-->
+				{
+					PLACEMENTS.map((placement) => (
+						<template x-if={`activeId === 'tip-${placement}'`}>
+							<template x-teleport="#overlay-root">
+								<div
+									id={`tip-${placement}`}
+									role="tooltip"
+									x-show="$store.tooltip.isOpen(activeId)" x-cloak
+									{...{ [`x-anchor.${placement}.fixed.noflip.offset.8`]: "activeTrigger" }}
+									class={tooltipClasses}
+									:style="{ zIndex: $store.overlay.zIndexOf('tooltip', activeId) }"
+									x-text="placement"
+								></div>
+							</template>
+						</template>
+					))
+				}
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Closes when the trigger scrolls away… unless you say otherwise"
+			note="Open one, then scroll the box WITHOUT moving the mouse. The left one closes, because a stationary pointer produces no mouseleave at all. The right one carries .sticky and stays. Scrolling back does not re-open either: the handler can only close, so it cannot spam the hover path."
+			code={SCROLL_CODE}
+		>
+			<div x-data="{ scrollTrigger: null, stickyTrigger: null }" class="space-y-3">
+				<div class="h-40 overflow-auto rounded-lg border p-6">
+					<div class="flex h-64 items-center justify-center gap-4">
+						<DemoButton
+							class={buttonClasses}
+							aria-describedby="tip-scroll"
+							@mouseenter="scrollTrigger = $el"
+							@focus="scrollTrigger = $el"
+							x-tooltip="{ id: 'tip-scroll', openDelay: 0, closeDelay: 0, closeOnScrollAway: true }"
+						>
+							Closes on scroll-away
+						</DemoButton>
+						<DemoButton
+							class={buttonClasses}
+							aria-describedby="tip-sticky"
+							@mouseenter="stickyTrigger = $el"
+							@focus="stickyTrigger = $el"
+							// The options bag goes on the directive itself, NOT in an
+							// x-init create(): the directive only calls create() when the
+							// id is missing, so creating it first would make .sticky a no-op.
+							x-tooltip.sticky="{ id: 'tip-sticky', openDelay: 0, closeDelay: 0 }"
+						>
+							closeOnScrollAway: false
+						</DemoButton>
+					</div>
+				</div>
+
+				<template x-teleport="#overlay-root">
+					<div
+						id="tip-scroll"
+						role="tooltip"
+						x-show="$store.tooltip.isOpen('tip-scroll')" x-cloak
+						x-anchor.top.fixed.noflip.offset.8="scrollTrigger"
+						class={tooltipClasses}
+						:style="{ zIndex: $store.overlay.zIndexOf('tooltip', 'tip-scroll') }"
+					>
+						Closes when scrolled away
+					</div>
+					<div
+						id="tip-sticky"
+						role="tooltip"
+						x-show="$store.tooltip.isOpen('tip-sticky')" x-cloak
+						x-anchor.top.fixed.noflip.offset.8="stickyTrigger"
+						class={tooltipClasses}
+						:style="{ zIndex: $store.overlay.zIndexOf('tooltip', 'tip-sticky') }"
+					>
+						Stays open — opted out
+					</div>
+				</template>
+			</div>
+		</DemoExample>
+	</div>
+</DemoSection>

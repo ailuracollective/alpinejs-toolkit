@@ -1,0 +1,88 @@
+name: Setup workspace
+description: >-
+  Provision pnpm and Node, and install the workspace with a frozen lockfile. Assumes the repository
+  is already checked out.
+
+# The toolchain bootstrap shared by `ci.yml` and `publish.yml`. It lives in one place because a step
+# that is decided in two places drifts: one copy gets fixed and the other keeps the old reason, or
+# stops explaining itself. The workflows keep only the steps that are genuinely theirs.
+#
+# THIS ACTION DOES NOT CHECK OUT. `ci.yml` and `publish.yml` each run `actions/checkout` themselves,
+# immediately before calling this, and that ordering is not a style choice. GitHub resolves a local
+# `uses: ./path` against the workspace as it exists when the step runs, so a workflow whose first
+# step is this action fails before it starts: the action directory has not been checked out yet, and
+# the run dies with "Can't find 'action.yml' ... under .github/actions". Checkout also differs
+# between the two callers — `publish.yml` checks out a release tag and gets a detached HEAD — so
+# folding it in here would have meant a `ref` input and, with it, the illusion that the two callers
+# bootstrap identically. They do not, and that difference is worth one visible line in each file.
+#
+# `registry-url` is genuinely optional, and "omitted" is a different state from "passed empty": an
+# empty `registry-url` would put a `registry-url: ""` key on the step, and that key is not the same
+# input as no key at all. It is therefore two mutually exclusive `uses:` steps guarded by `if`, not
+# one step with a blank value. Exactly one of the pair runs.
+
+inputs:
+  registry-url:
+    description: Registry that `actions/setup-node` writes an auth line for. Omit to write none.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # No `version:` input: pnpm/action-setup reads `packageManager` from the root package.json,
+    # which is the only place the pnpm version is written down. Hardcoding it here as well made the
+    # pin and the field two records of one fact that could disagree. The lockfile is only
+    # installable by that version, which is the strongest reason to keep it a single record.
+    - uses: pnpm/action-setup@v6
+
+    # Node and the pnpm store cache, for a caller that needs no registry auth line.
+    #
+    # Node comes from `.node-version`, for the same single-record reason, and that is what keeps
+    # `publish.yml` on the same runtime as `ci.yml`. `cache: pnpm` caches the pnpm store and
+    # requires the pnpm step above, which has already run.
+    - if: ${{ inputs.registry-url == '' }}
+      uses: actions/setup-node@v7
+      with:
+        node-version-file: .node-version
+        cache: pnpm
+
+    # The same, plus `registry-url`, which makes `actions/setup-node` write an auth line pointing
+    # at that registry into the runner's user-level `.npmrc`. The repository `.npmrc` holds only
+    # settings (`auto-install-peers`, `confirmModulesPurge`), so there is no registry line there to
+    # conflict with, and the two files are not the same file.
+    - if: ${{ inputs.registry-url != '' }}
+      uses: actions/setup-node@v7
+      with:
+        node-version-file: .node-version
+        cache: pnpm
+        registry-url: ${{ inputs.registry-url }}
+
+    # No `voidzero-dev/setup-vp` step, which upstream's CI guide does recommend. It is omitted
+    # because it does not work in this repository: every revision of `ci.yml` that referenced it
+    # failed with `startup_failure` and zero jobs allocated, while the revision that dropped it
+    # (`e755569`) ran green. The correlation is unambiguous across every recorded run on that
+    # branch and on `master`. GitHub reports no job and no annotation for the failure, so the cause
+    # is not visible from the API; what is verifiable is that the action has never once succeeded
+    # here, so it is not worth further guessing at.
+    #
+    # Its `run-install` input defaults to `true`, which was a second, independent reason to avoid
+    # it: the action runs `vp install` itself, unfrozen, immediately before the frozen install
+    # below, so on a lockfile that disagrees with package.json it would repair the lockfile instead
+    # of failing. It adds nothing that is needed either: `vp` is a root devDependency, so the
+    # install below provides the binary, and Node is already provisioned by setup-node above.
+    #
+    # `pnpm install --frozen-lockfile`, not `vp install`, and that is deliberate: the last revision
+    # of `ci.yml` that actually executed (`e755569`) used exactly this line and went green, so
+    # keeping it means that run tests one variable — the removal of setup-vp — rather than two.
+    # `vp install --frozen-lockfile` is the equivalent toolchain entry point and was verified
+    # locally; it is the better long-term form given everything else here is `vp`, and is worth
+    # switching once the removal has proved itself green.
+    #
+    # A bare `vp` is never a candidate for any of this: `vp` is a root devDependency, so its
+    # binary lives in `node_modules/.bin` and only `pnpm run`/`pnpm exec` put that on the PATH of a
+    # `run:` step. That is why every other command in both workflows is a `pnpm run` script or a
+    # `pnpm exec` invocation rather than `vp`.
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

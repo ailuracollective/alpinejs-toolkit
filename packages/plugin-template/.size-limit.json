@@ -1,0 +1,8 @@
+[
+  {
+    "name": "plugin-template full module",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "260 B"
+  }
+]

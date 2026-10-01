@@ -1,0 +1,144 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("env")!;
+
+// One magic, four domains. The view is never partial: a domain disabled by the
+// plugin options stays there with `supported: false`.
+const DOMAINS_CODE = `<!-- One magic. There is nothing else to register and nothing to import:
+     \`$env\` is a Handle with the reactive projection of each domain. -->
+<p x-text="$env.network.online ? 'Online' : 'Offline'"></p>
+<p x-text="\`supported: \${$env.network.supported}\`"></p>
+
+<p x-text="$env.visibility.visible ? 'Tab visible' : 'Tab hidden'"></p>
+<p x-text="\`supported: \${$env.visibility.supported}\`"></p>
+
+<p>OS: <strong x-text="$env.platform.platform || 'unknown'"></strong></p>
+<p x-text="\`supported: \${$env.platform.supported}\`"></p>
+
+<!-- Careful: battery is the only domain with NO supported flag. Its "unsupported"
+     is null, exactly like in a browser without the API, so the check is
+     truthiness — and because the Battery Status API is async, it can read
+     null for a moment even where it does exist. -->
+<p x-show="!$env.battery" x-cloak>API unavailable in this browser</p>
+<p x-show="$env.battery" x-cloak>
+  Level: <strong x-text="$env.battery ? Math.round($env.battery.level * 100) : 0"></strong>%
+</p>`;
+
+const SUPPORTED_CODE = `<!-- A domain disabled through the plugin options
+     (env({ battery: false })) STAYS on the view, frozen at its registration
+     value, and reports supported: false. It never disappears: the aggregate
+     view is never partial. -->
+<p x-text="$env.network.supported"></p>
+<p x-text="$env.visibility.supported"></p>
+<p x-text="$env.platform.supported"></p>
+
+<!-- battery has no supported: you read its value, which is null or an object.
+     \`$env.battery\` truthy  ⟺  the Battery Status API is available. -->
+<p x-text="String($env.battery !== null)"></p>`;
+
+const TEARDOWN_CODE = `// Nothing calls \`destroy()\` automatically: the host that registered the
+// plugin calls it, and it is the only thing that removes the online/offline and
+// visibilitychange listeners. In the playground nobody calls it.
+$env.destroy()`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-sm text-[var(--ios-label-secondary)] text-pretty">
+		One magic, four domains. Every domain stays on the <code>$env</code> view — a domain disabled
+		by the plugin options reports <code>supported: false</code> instead of disappearing.
+	</p>
+
+	<DemoExample
+		title="Every domain updates on its own"
+		note="One reactive projection, four reads. Switch browser tabs or go offline and the values change without a single listener in your code: the plugin registers the online/offline and visibilitychange handlers and pushes each domain into the magic."
+		open
+		code={DOMAINS_CODE}
+	>
+		<div class="grid gap-3 text-sm sm:grid-cols-2" data-testid="env-domains">
+			<div class="rounded-lg border border-[var(--ios-separator)] p-3">
+				<p class="mb-1 font-medium">$env.network</p>
+				<p
+					x-bind:class="$env.network.online ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'"
+					x-text="$env.network.online ? 'Online' : 'Offline'"
+				></p>
+				<p class="text-xs text-[var(--ios-label-secondary)]" x-text="`supported: ${$env.network.supported}`"></p>
+			</div>
+
+			<div class="rounded-lg border border-[var(--ios-separator)] p-3">
+				<p class="mb-1 font-medium">$env.visibility</p>
+				<p x-text="$env.visibility.visible ? 'Tab visible' : 'Tab hidden'"></p>
+				<p class="text-xs text-[var(--ios-label-secondary)]" x-text="`supported: ${$env.visibility.supported}`"></p>
+			</div>
+
+			<div class="rounded-lg border border-[var(--ios-separator)] p-3">
+				<p class="mb-1 font-medium">$env.platform</p>
+				<p>OS: <strong x-text="$env.platform.platform || 'unknown'"></strong></p>
+				<p class="text-xs text-[var(--ios-label-secondary)]" x-text="`supported: ${$env.platform.supported}`"></p>
+			</div>
+
+			<div class="rounded-lg border border-[var(--ios-separator)] p-3">
+				<p class="mb-1 font-medium">$env.battery</p>
+				<p x-show="!$env.battery" x-cloak>API unavailable in this browser</p>
+				<p x-show="$env.battery" x-cloak>
+					Level: <strong x-text="$env.battery ? Math.round($env.battery.level * 100) : 0"></strong>%
+					<span class="text-[var(--ios-label-secondary)]" x-text="$env.battery?.charging ? '· charging' : ''"></span>
+				</p>
+			</div>
+		</div>
+
+		<p class="text-xs text-[var(--ios-label-secondary)]">
+			Switch browser tabs or go offline — the values above update live. All four domains report
+			<code>supported: true</code> because this playground registers <code>env()</code> with no
+			options; a domain switched off at registration would report
+			<code>supported: false</code> and stay frozen at its registration-time value instead of
+			disappearing, so the aggregate is never partial. Note that <code>$env.battery</code> carries
+			no <code>supported</code> flag at all — <code>null</code> <em>is</em> its unsupported shape,
+			and the Battery Status API is async, so it can read <code>null</code> for a tick even in a
+			browser that has one.
+		</p>
+	</DemoExample>
+
+	<DemoExample
+		title="A disabled domain stays on the view, frozen at supported: false"
+		note="This is the reason the four domains never disagree about their own availability. Registering env({ network: false }) does not remove $env.network — it pins it to its registration-time read and reports supported: false, so a template written against it keeps working and can say why it is empty."
+		code={SUPPORTED_CODE}
+	>
+		<p class="text-xs text-[var(--ios-label-secondary)] text-pretty">
+			The four <code>supported</code> reads above, on their own. Every one of them is a plain
+			reactive property, so this is the whole shape of a support check:
+		</p>
+		<div class="flex flex-wrap gap-2 font-mono text-xs">
+			<span class="rounded-md bg-[var(--ios-fill-quaternary)] px-2 py-1">
+				$env.network.supported → <strong x-text="$env.network.supported"></strong>
+			</span>
+			<span class="rounded-md bg-[var(--ios-fill-quaternary)] px-2 py-1">
+				$env.visibility.supported → <strong x-text="$env.visibility.supported"></strong>
+			</span>
+			<span class="rounded-md bg-[var(--ios-fill-quaternary)] px-2 py-1">
+				$env.platform.supported → <strong x-text="$env.platform.supported"></strong>
+			</span>
+		</div>
+		<p class="text-xs text-[var(--ios-label-secondary)] text-pretty">
+			And for battery, which has no flag, the value itself is the answer:
+			<code>$env.battery !== null</code> is
+			<strong x-text="String($env.battery !== null)"></strong>.
+		</p>
+	</DemoExample>
+
+	<DemoExample
+		title="Teardown is the host's, not the plugin's"
+		note="Nothing calls destroy() automatically. If your app registers env() more than once — a hot reload, a micro-frontend host, a test — that is when a second set of listeners shows up, and $env.destroy() is the call that takes the previous one's off the window and the document."
+		code={TEARDOWN_CODE}
+	>
+		<p class="text-sm text-[var(--ios-label-secondary)] text-pretty">
+			The playground registers <code>env()</code> once at boot and never tears it down, so
+			<code>destroy()</code> is the one member of <code>$env</code> this page does not exercise
+			— it removes the <code>window</code> <code>online</code>/<code>offline</code> and
+			<code>document</code> <code>visibilitychange</code> listeners, and a single app has no
+			reason to pull them down.
+		</p>
+	</DemoExample>
+</DemoSection>

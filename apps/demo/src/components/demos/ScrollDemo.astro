@@ -1,0 +1,145 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("scroll")!;
+
+// The page registers no listener: the seven fields are state the plugin keeps
+// and syncs to the store on every `change` event.
+const STATE_CODE = `<!-- There is no scroll listener on the page. The plugin keeps the
+     state and writes it into $store.scroll on every 'change' event, so any
+     x-text in the template takes care of itself. -->
+<ul>
+  <li>X: <strong x-text="Math.round($store.scroll.x)"></strong>px
+      Y: <strong x-text="Math.round($store.scroll.y)"></strong>px</li>
+  <li>Direction: <strong x-text="$store.scroll.direction || '—'"></strong></li>
+  <li>Progress: <strong x-text="Math.round($store.scroll.progress * 100)"></strong>%</li>
+  <li>At top: <strong x-text="$store.scroll.atTop"></strong>
+      At bottom: <strong x-text="$store.scroll.atBottom"></strong></li>
+  <li>Locked: <strong x-text="$store.scroll.locked"></strong>
+      · locks: <strong x-text="$store.scroll.lockCount"></strong></li>
+</ul>`;
+
+// The trap: lock() RETURNS a handle and unlock() needs it. A lock whose handle
+// you did not keep can only be released with unlockAll(), which also takes
+// away everyone else's locks — hence the handle lives in x-data.
+const LOCK_CODE = `x-data="{
+  handle: null,
+  lock() {
+    // lock() returns the handle. Keep it: unlock(handle) needs it.
+    this.handle = $store.scroll.lock('demo');
+  },
+  unlock() {
+    if (!this.handle) return;
+    $store.scroll.unlock(this.handle);
+    this.handle = null;
+  },
+  toggle() { this.handle ? this.unlock() : this.lock(); },
+}"
+
+<button @click="lock()">lock()</button>
+<button @click="unlock()">unlock()</button>
+<button @click="toggle()">lock-toggle</button>
+
+<!-- unlockAll() releases ALL locks, including another owner's. -->
+<button @click="$store.scroll.unlockAll()">unlockAll()</button>`;
+
+// Navigation: on the window, and 'smooth' is already the default behavior
+// (overridden per call or with defaultBehavior, and the controller's
+// prefers-reduced-motion block lowers it to 'instant').
+const NAVIGATE_CODE = `<!-- These two calls move the WINDOW, not a container. For inner
+     scrolling use scrollIntoView(), which is in the store.
+
+     Careful: toElement(id) does NOT reach the store — it lives in
+     ScrollController, alongside registerSection()/reset(), and nothing in the
+     plugin calls it. That is why $store.scroll.activeSection and
+     visibleSections stay null and [] in an Alpine app. -->
+<button @click="$store.scroll.toTop()">toTop()</button>
+<button @click="$store.scroll.toBottom()">toBottom()</button>
+<button @click="$store.scroll.scrollIntoView({ x: 0, y: 400 })">scrollIntoView</button>
+
+<!-- behavior is opt-in PER CALL; without it defaultBehavior is used, and the
+     plugin's default is 'smooth'. -->
+<button @click="$store.scroll.toBottom({ behavior: 'instant' })">toBottom instant</button>`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="The scroll state, without a single listener on the page"
+		note="The seven fields are state the plugin keeps: they are written into $store.scroll on every change event. A sticky progress bar is an x-text, not an onscroll."
+		open
+		code={STATE_CODE}
+	>
+		<ul class="list-disc list-inside space-y-1 text-sm" data-testid="scroll-state">
+			<li>X: <strong x-text="Math.round($store.scroll.x)"></strong>px · Y: <strong x-text="Math.round($store.scroll.y)"></strong>px</li>
+			<li>Direction: <strong x-text="$store.scroll.direction || '—'"></strong></li>
+			<li>Progress: <strong x-text="Math.round($store.scroll.progress * 100)"></strong>%</li>
+			<li>At top: <strong x-text="$store.scroll.atTop"></strong> · At bottom: <strong x-text="$store.scroll.atBottom"></strong></li>
+			<li>Locked: <strong x-text="$store.scroll.locked"></strong> · Locks: <strong x-text="$store.scroll.lockCount"></strong></li>
+		</ul>
+	</DemoExample>
+
+	<DemoExample
+		title="Locking the scroll means holding a handle, not setting a boolean"
+		note="lock() returns a handle and unlock() demands it. Keep the handle in the owner's x-data: two owners can lock at once, which is why the store also counts in lockCount."
+		code={LOCK_CODE}
+	>
+		<div
+			class="flex flex-wrap gap-2"
+			x-data="{
+				handle: null,
+				lock() {
+					this.handle = $store.scroll.lock('demo')
+				},
+				unlock() {
+					if (!this.handle) {
+						return;
+					}
+					$store.scroll.unlock(this.handle);
+					this.handle = null
+				},
+				toggle() {
+					if (this.handle) {
+						this.unlock();
+					} else {
+						this.lock();
+					}
+				},
+			}"
+		>
+			<DemoButton @click="lock()">lock()</DemoButton>
+			<DemoButton @click="unlock()">unlock()</DemoButton>
+			<DemoButton @click="toggle()">lock-toggle</DemoButton>
+			<DemoButton @click="$store.scroll.unlockAll()">unlockAll()</DemoButton>
+		</div>
+		<p class="text-xs text-[var(--ios-label-secondary)]">
+			The handle the owner is holding:
+			<code class="font-mono" x-text="handle ?? 'none'"></code>
+		</p>
+	</DemoExample>
+
+	<DemoExample
+		title="Navigation moves the window, and that is all that reaches the store"
+		note="toTop(), toBottom() and by({ x, y }) actuate the window; for a container use scrollIntoView(). And do not expect anything from activeSection: the sections API is not forwarded to the store."
+		code={NAVIGATE_CODE}
+	>
+		<div class="flex flex-wrap gap-2">
+			<DemoButton @click="$store.scroll.toTop()">toTop()</DemoButton>
+			<DemoButton @click="$store.scroll.toBottom()">toBottom()</DemoButton>
+			<DemoButton @click="$store.scroll.scrollIntoView({ x: 0, y: 400 })">scrollIntoView</DemoButton>
+			<DemoButton @click="$store.scroll.toBottom({ behavior: 'instant' })">toBottom instant</DemoButton>
+		</div>
+		<p class="text-xs text-[var(--ios-label-secondary)]">
+			<code>activeSection</code>: <span class="font-mono" x-text="String($store.scroll.activeSection)"></span>
+			· <code>visibleSections</code>:
+			<span class="font-mono" x-text="JSON.stringify($store.scroll.visibleSections)"></span>
+			— <code>registerSection()</code> is not in the store, so this stays empty.
+		</p>
+	</DemoExample>
+
+	<p class="text-sm text-[var(--ios-label-secondary)] mt-3">
+		Sticky progress bar in the header uses <code>$store.scroll.progress</code>. Locking is handle-based: take a <code>lock()</code> handle, keep it, and call <code>unlock()</code> on that handle — two owners can overlap, which is why the store also reports <code>lockCount</code>.
+	</p>
+</DemoSection>

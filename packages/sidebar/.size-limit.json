@@ -1,0 +1,16 @@
+[
+  {
+    "name": "sidebar full surface",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "3.5 kB",
+    "ignore": [
+      "alpinejs",
+      "@ailura/alpinejs-core",
+      "@ailura/alpinejs-ui",
+      "@ailura/alpinejs-media"
+    ],
+    "gzip": true,
+    "brotli": true
+  }
+]

@@ -1,0 +1,33 @@
+---
+import Card from "@/components/ui/Card.astro";
+import CardContent from "@/components/ui/CardContent.astro";
+import CardDescription from "@/components/ui/CardDescription.astro";
+import CardHeader from "@/components/ui/CardHeader.astro";
+import CardTitle from "@/components/ui/CardTitle.astro";
+import DemoButton from "./astro/DemoButton.astro";
+---
+
+<Card size="sm" class="mt-4">
+	<CardHeader>
+		<CardTitle>Retries</CardTitle>
+		<CardDescription>
+			<code class="text-xs">observe(key, queryFn, &#123; retry: 2 &#125;)</code> — the controller
+			re-runs a failing query before settling on the result.
+		</CardDescription>
+	</CardHeader>
+	<CardContent>
+		<div x-data="queryRetryDemo" class="space-y-2">
+			<div class="flex flex-wrap items-center gap-2">
+				<DemoButton @click="run()" x-bind:disabled="status === 'pending'">Run</DemoButton>
+				<DemoButton variant="ghost" @click="reset()">Reset</DemoButton>
+				<span class="text-sm text-[var(--ios-label-secondary)]" x-show="status === 'pending'" x-cloak aria-live="polite">
+					Retrying…
+				</span>
+			</div>
+			<p class="text-sm text-[var(--ios-red)]" x-show="error" x-cloak x-text="error" role="alert"></p>
+			<p class="text-sm" x-show="status === 'success'" x-cloak>
+				Succeeded after <strong class="tabular-nums" x-text="data?.attempts"></strong> attempts
+			</p>
+		</div>
+	</CardContent>
+</Card>

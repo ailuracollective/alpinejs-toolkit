@@ -1,0 +1,11 @@
+[
+  {
+    "name": "tooltip full surface",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "2.5 kB",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core", "@ailura/alpinejs-ui"],
+    "gzip": true,
+    "brotli": true
+  }
+]

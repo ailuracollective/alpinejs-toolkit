@@ -1,0 +1,270 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("form")!;
+
+const inputClass =
+	"w-full rounded-md border border-[var(--ios-separator)] bg-[var(--ios-bg-primary)] px-3 py-2 text-sm outline-none focus-visible:ring-3 focus-visible:ring-[var(--ios-blue)]/30 aria-invalid:border-[var(--ios-red)]";
+
+const FIELD_CODE = `<div x-data x-init="
+  $store.form.create('demo', { initialValues: { email: '', password: '' } });
+  $store.form.createField('demo', 'email', {
+    validate: value => value ? null : 'Email is required',
+  });
+" class="space-y-3">
+  <input
+    :value="$store.form.instances.demo?.values?.email ?? ''"
+    @input="$store.form.setValue('demo', 'email', $event.target.value)"
+    @blur="$store.form.touch('demo', 'email')"
+  />
+
+  <!-- instances.demo is a SNAPSHOT that is redone on every change: read it with
+       ?. and never write to it. The way to change a value is setValue(). -->
+  <p x-show="$store.form.instances.demo?.fields?.email?.errors?.length" x-cloak
+     x-text="$store.form.instances.demo?.fields?.email?.errors?.[0]"></p>
+</div>`;
+
+const STATE_CODE = `<!-- Four flags the controller computes and the page does not:
+     dirty    → some value !== its initialValue (by reference)
+     touched  → some blur
+     valid    → no field with errors and no formError
+     submitting → inside submit() -->
+<p>dirty: <span x-text="$store.form.instances.demo?.dirty"></span></p>
+<p>touched: <span x-text="$store.form.instances.demo?.touched"></span></p>
+<p>valid: <span x-text="$store.form.instances.demo?.valid"></span></p>
+<p>submitting: <span x-text="$store.form.instances.demo?.submitting"></span></p>
+
+<DemoButton @click="$store.form.validate('demo')">validate()</DemoButton>
+
+<!-- validate() returns a boolean. On a field WITHOUT a validate it clears its
+     errors — which is why the server errors disappear when you press this. -->
+<DemoButton @click="$store.form.reset('demo')">reset()</DemoButton>`;
+
+const SUBMIT_CODE = `<!-- Careful: submit() REJECTS instead of returning a status. An invalid
+     form and a throwing handler produce the same rejection; only the
+     submit-error event tells them apart. Without .catch() that is a rejected
+     promise escaping into the click handler.
+
+     The handler receives a COPY of values: mutating it does not change the form. -->
+<DemoButton
+  @click="$store.form.submit('demo', async () => {
+    await new Promise(r => setTimeout(r, 400));
+  }).catch(() => {})"
+>
+  submit()
+</DemoButton>`;
+
+const SERVER_CODE = `<!-- The server response is painted over the form you already have,
+     without rebuilding it. A path with no registered field is discarded, so
+     the error has to target a field that exists.
+
+     validate() does NOT clear formErrors — it does clear field errors. That
+     asymmetry is deliberate and is documented in Limitations. -->
+<DemoButton variant="secondary"
+  @click="$store.form.setServerErrors(
+    'demo',
+    { email: ['Already registered'] },
+    ['Please fix the highlighted fields']
+  )">
+  simulate server errors
+</DemoButton>
+
+<p role="alert" aria-live="polite"
+   x-show="$store.form.instances.demo?.formErrors?.length" x-cloak
+   x-text="$store.form.instances.demo?.formErrors?.join(' ')"></p>`;
+// ──
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="The input has no x-model: the value lives in the store"
+		note="The package ships no markup and no styles — and it does not replace x-model. The input is bound with `:value` and `@input`, and the real value lives in `$store.form.instances.demo.values.email`. With that you can read it, clear it or send it somewhere else without touching the DOM."
+		open
+		code={FIELD_CODE}
+	>
+		<div
+			x-data
+			x-init="
+				$store.form.create('demo', { initialValues: { email: '', password: '' } });
+				$store.form.createField('demo', 'email', { validate: value => value ? null : 'Email is required' });
+				$store.form.createField('demo', 'password', { validate: value => value && String(value).length >= 8 ? null : 'Password must be at least 8 characters' });
+			"
+			class="space-y-4"
+		>
+			<div class="grid gap-3 sm:grid-cols-2">
+				<label class="space-y-1 text-sm">
+					<span>Email</span>
+					<input
+						type="email"
+						class={inputClass}
+						data-form-field="email"
+						x-bind:aria-invalid="$store.form.instances.demo?.fields?.email?.errors?.length ? 'true' : 'false'"
+						:value="$store.form.instances.demo?.values?.email ?? ''"
+						@input="$store.form.setValue('demo', 'email', $event.target.value)"
+						@blur="$store.form.touch('demo', 'email')"
+					/>
+					<p
+						class="text-xs text-[var(--ios-red)]"
+						x-show="$store.form.instances.demo?.fields?.email?.errors?.length"
+						x-cloak
+						x-text="$store.form.instances.demo?.fields?.email?.errors?.[0]"
+					></p>
+				</label>
+
+				<label class="space-y-1 text-sm">
+					<span>Password</span>
+					<input
+						type="password"
+						class={inputClass}
+						data-form-field="password"
+						x-bind:aria-invalid="$store.form.instances.demo?.fields?.password?.errors?.length ? 'true' : 'false'"
+						:value="$store.form.instances.demo?.values?.password ?? ''"
+						@input="$store.form.setValue('demo', 'password', $event.target.value)"
+						@blur="$store.form.touch('demo', 'password')"
+					/>
+					<p
+						class="text-xs text-[var(--ios-red)]"
+						x-show="$store.form.instances.demo?.fields?.password?.errors?.length"
+						x-cloak
+						x-text="$store.form.instances.demo?.fields?.password?.errors?.[0]"
+					></p>
+				</label>
+			</div>
+
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				Type something, leave the field and come back: the errors appear
+				because <code>validate()</code> wrote them, not because the input was
+				marked.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Four flags the controller computes"
+		note="`dirty`, `touched`, `valid` and `submitting` are not your booleans: the controller aggregates them across every field. `valid` is simply `!invalid`, so a single field error sets it to false."
+		code={STATE_CODE}
+	>
+		<div
+			x-data
+			x-init="
+				$store.form.create('flags', { initialValues: { nickname: '' } });
+				$store.form.createField('flags', 'nickname', { validate: v => v && v.length >= 3 ? null : 'At least 3 characters' });
+			"
+			class="space-y-3"
+		>
+			<input
+				class={inputClass}
+				placeholder="Type, then blur"
+				:value="$store.form.instances.flags?.values?.nickname ?? ''"
+				@input="$store.form.setValue('flags', 'nickname', $event.target.value)"
+				@blur="$store.form.touch('flags', 'nickname')"
+			/>
+
+			<div class="flex flex-wrap gap-3 text-sm">
+				<span>dirty: <strong x-text="$store.form.instances.flags?.dirty"></strong></span>
+				<span>touched: <strong x-text="$store.form.instances.flags?.touched"></strong></span>
+				<span>valid: <strong x-text="$store.form.instances.flags?.valid"></strong></span>
+				<span>submitting: <strong x-text="$store.form.instances.flags?.submitting"></strong></span>
+			</div>
+
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="$store.form.validate('flags')" data-testid="form-validate">validate()</DemoButton>
+				<DemoButton variant="ghost" @click="$store.form.reset('flags')">reset()</DemoButton>
+			</div>
+
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				Two forms at once are told apart by the id: <code>'flags'</code> here and
+				<code>'demo'</code> in the example above, sharing the same
+				<code>$store.form</code>.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="submit() rejects, and you have to catch that"
+		note="Press submit with the fields empty: nothing visible happens except `submitting` blinking. The reason is the API trap — `submit()` throws instead of returning a status, so without `.catch()` the rejected promise escapes into the click handler. With the email filled in, that 400 ms `await` is the handler."
+		code={SUBMIT_CODE}
+	>
+		<div
+			x-data
+			x-init="
+				$store.form.create('submit-demo', { initialValues: { email: '' } });
+				$store.form.createField('submit-demo', 'email', { validate: v => v ? null : 'Email is required' });
+			"
+			class="space-y-3"
+		>
+			<input
+				type="email"
+				class={inputClass}
+				placeholder="Leave empty to fail validation"
+				:value="$store.form.instances['submit-demo']?.values?.email ?? ''"
+				@input="$store.form.setValue('submit-demo', 'email', $event.target.value)"
+			/>
+			<div class="flex flex-wrap items-center gap-2">
+				<DemoButton
+					@click="$store.form.submit('submit-demo', async () => { await new Promise(r => setTimeout(r, 400)); }).catch(() => {})"
+				>
+					submit()
+				</DemoButton>
+				<span class="text-sm text-[var(--ios-label-secondary)]">
+					submitting: <strong x-text="$store.form.instances['submit-demo']?.submitting"></strong>
+				</span>
+			</div>
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				The validators run <strong>one at a time</strong>, not in parallel: each
+				<code>await</code> is inside the loop. A validator that hits the network
+				serialises the entire form.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Server errors are painted over the form you already have"
+		note="A 422 should not force you to rebuild the form. That is what `setServerErrors` buys you. Watch the behavior: `validate()` clears the field `errors` but NOT the `formErrors`, so after the 422 the two disappear by different paths."
+		code={SERVER_CODE}
+	>
+		<div
+			x-data
+			x-init="
+				$store.form.create('server', { initialValues: { email: 'ana@example.com' } });
+				$store.form.createField('server', 'email', { validate: v => v ? null : 'Email is required' });
+			"
+			class="space-y-3"
+		>
+			<input
+				type="email"
+				class={inputClass}
+				:value="$store.form.instances.server?.values?.email ?? ''"
+				@input="$store.form.setValue('server', 'email', $event.target.value)"
+			/>
+			<p class="text-xs text-[var(--ios-red)]" x-show="$store.form.instances.server?.fields?.email?.errors?.length" x-cloak x-text="$store.form.instances.server?.fields?.email?.errors?.[0]"></p>
+
+			<div class="flex flex-wrap gap-2">
+				<DemoButton
+					variant="secondary"
+					@click="$store.form.setServerErrors('server', { email: ['Already registered'] }, ['Please fix the highlighted fields'])"
+				>
+					simulate 422
+				</DemoButton>
+				<DemoButton variant="ghost" @click="$store.form.validate('server')">validate() after</DemoButton>
+			</div>
+
+			<p
+				class="text-xs text-[var(--ios-red)]"
+				role="alert"
+				aria-live="polite"
+				x-show="$store.form.instances.server?.formErrors?.length"
+				x-cloak
+				x-text="$store.form.instances.server?.formErrors?.join(' ')"
+			></p>
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				Press <strong>simulate 422</strong> and then <strong>validate() after</strong>:
+				the field message is cleared, the form message stays. That is the
+				asymmetry the note is about.
+			</p>
+		</div>
+	</DemoExample>
+</DemoSection>

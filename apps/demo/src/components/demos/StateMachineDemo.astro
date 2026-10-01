@@ -1,0 +1,298 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("state-machine")!;
+
+const EVENTS = ["FETCH", "RESOLVE", "REJECT", "RETRY"] as const;
+
+const MACHINE_CODE = `x-data="{
+  m: $machine({
+    initial: 'idle',
+    transitions: [
+      { name: 'FETCH',   from: 'idle',    to: 'loading' },
+      { name: 'RESOLVE', from: 'loading', to: 'ready' },
+      { name: 'REJECT',  from: 'loading', to: 'error' },
+      { name: 'RETRY',   from: 'error',   to: 'loading' },
+    ],
+  }),
+}"`;
+
+const READ_CODE = `// The current state, and the helpers that depend on it:
+<span x-text="m.state"></span>          // 'idle' → 'loading' → 'ready'
+m.is('loading')                        // true
+m.can('RESOLVE')                       // does that edge exist from here?
+m.cannot('RESOLVE')                    // its negation
+m.value                                // alias of state (shorthand)
+
+// can()/cannot()/is() read the controller's state, so the plugin registers the
+// dependency for you: no watcher needed.`;
+
+// Every call to $machine(config) builds a new machine: its own controller, its
+// own id, its own teardown. Two in the same x-data never share state.
+const ISOLATION_CODE = `x-data="{
+  // Two different graphs, one magic key.
+  list: $machine({ initial: 'idle',   transitions: [
+    { name: 'LOAD',  from: 'idle', to: 'loading' },
+    { name: 'READY', from: 'loading', to: 'ready' },
+  ] }),
+  detail: $machine({ initial: 'locked', transitions: [
+    { name: 'OPEN',  from: 'locked', to: 'open' },
+  ] }),
+}"
+
+<button @click="list.send('LOAD')">list → <span x-text="list.state"></span></button>
+<button @click="detail.send('OPEN')">detail → <span x-text="detail.state"></span></button>
+
+<!-- Each evaluation brings its own id from generateId('machine') -->
+<code x-text="list.id"></code> · <code x-text="detail.id"></code>`;
+
+// The `before` guard returns `false` to cancel the edge. `send()` returns
+// whether the transition happened, so the result can be shown — without that,
+// denying the event and not pressing the button look identical.
+const GUARD_CODE = `x-data="{ allow: false, gated: null, last: null }"
+x-init="gated = $machine({
+  initial: 'closed',
+  transitions: [
+    // before() returns false → the edge is cancelled
+    { name: 'OPEN',  from: 'closed', to: 'open', before: () => allow },
+    { name: 'CLOSE', from: 'open',   to: 'closed' },
+  ],
+})"
+
+// Careful: can() only looks at whether the EDGE exists, not whether the guard
+// passes. With the guard closed, can('OPEN') is still true and the button is
+// NOT disabled. That is why the result of send() is shown separately.
+@click="last = gated.send('OPEN') ? 'transitioned' : 'cancelled by the guard'"`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-sm text-[var(--ios-label-secondary)] text-pretty">
+		A declarative state machine: you define the transitions once and the template
+		reads the state. It is for what lazy booleans do badly — when
+		<code>isLoading</code>, <code>isError</code> and <code>isDone</code> contradict each
+		other because nobody is in charge of stopping them.
+	</p>
+
+	<DemoExample
+		title="A four-state machine"
+		note="Look at the table: only the events valid from the current state are available. The rest come out greyed and their button is disabled."
+		open
+		code={MACHINE_CODE}
+	>
+		<div
+			x-data="{
+				m: $machine({
+					initial: 'idle',
+					transitions: [
+						{ name: 'FETCH', from: 'idle', to: 'loading' },
+						{ name: 'RESOLVE', from: 'loading', to: 'ready' },
+						{ name: 'REJECT', from: 'loading', to: 'error' },
+						{ name: 'RETRY', from: 'error', to: 'loading' },
+					],
+				}),
+			}"
+			class="space-y-4"
+		>
+			<div class="flex flex-wrap items-center gap-2">
+				<span
+					class="inline-flex items-center gap-2 rounded-full bg-[var(--ios-fill-tertiary)] px-3 py-1 text-sm font-medium"
+				>
+					<span
+						class="size-2 rounded-full"
+						:class="{
+							'bg-[var(--ios-blue)]': m.is('idle'),
+							'bg-[var(--ios-orange)]': m.is('loading'),
+							'bg-green-500': m.is('ready'),
+							'bg-[var(--ios-red)]': m.is('error'),
+						}"
+					></span>
+					<span x-text="m.state"></span>
+				</span>
+				<span class="text-xs text-[var(--ios-label-secondary)]">
+					<code>value</code> is an alias of <code>state</code>:
+					<span x-text="m.value"></span>
+				</span>
+			</div>
+
+			<div class="flex flex-wrap gap-2">
+				{
+					EVENTS.map((event) => (
+						<DemoButton
+							data-testid="machine-event"
+							@click={`m.send('${event}')`}
+							x-bind:disabled={`!m.can('${event}')`}
+						>
+							{event}
+						</DemoButton>
+					))
+				}
+				<DemoButton variant="ghost" @click="m.reset()">reset()</DemoButton>
+			</div>
+
+			<div class="overflow-x-auto">
+				<table class="w-full min-w-80 text-left text-sm">
+					<thead class="text-[10px] uppercase tracking-wider text-[var(--ios-label-tertiary)]">
+						<tr>
+							<th class="py-1.5 pr-3 font-semibold">Event</th>
+							<th class="py-1.5 pr-3 font-semibold">can()</th>
+							<th class="py-1.5 font-semibold">cannot()</th>
+						</tr>
+					</thead>
+					<tbody>
+						{
+							EVENTS.map((event) => (
+								<tr class="border-t border-[var(--ios-separator)]">
+									<td class="py-1.5 pr-3 font-mono text-xs">{event}</td>
+									<td class="py-1.5 pr-3">
+										<span
+											x-text={`m.can('${event}')`}
+											:class={`m.can('${event}') ? 'text-green-600 dark:text-green-400' : 'text-[var(--ios-label-tertiary)]'`}
+										></span>
+									</td>
+									<td class="py-1.5">
+										<span
+											x-text={`m.cannot('${event}')`}
+											:class={`m.cannot('${event}') ? 'text-[var(--ios-label-secondary)]' : 'text-green-600 dark:text-green-400'`}
+										></span>
+									</td>
+								</tr>
+							))
+						}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Reading the state from the template"
+		note="These four calls are the whole API you need in the HTML, and all four update on their own: the plugin registers the dependency for you when you touch the reactive state, so there is no watcher on the page at all."
+		code={READ_CODE}
+	>
+		<div
+			x-data="{
+				m: $machine({
+					initial: 'draft',
+					transitions: [
+						{ name: 'SUBMIT', from: 'draft',   to: 'sending' },
+						{ name: 'DONE',   from: 'sending', to: 'sent' },
+						{ name: 'BACK',   from: 'sent',    to: 'draft' },
+					],
+				}),
+			}"
+			class="space-y-3"
+		>
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="m.send('SUBMIT')">SUBMIT</DemoButton>
+				<DemoButton @click="m.send('DONE')">DONE</DemoButton>
+				<DemoButton @click="m.send('BACK')">BACK</DemoButton>
+			</div>
+			<div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+				<div class="rounded-md border border-[var(--ios-separator)] p-2">
+					<p class="text-[var(--ios-label-tertiary)]">state</p>
+					<p class="font-mono" x-text="m.state">—</p>
+				</div>
+				<div class="rounded-md border border-[var(--ios-separator)] p-2">
+					<p class="text-[var(--ios-label-tertiary)]">is('draft')</p>
+					<p class="font-mono" x-text="String(m.is('draft'))">—</p>
+				</div>
+				<div class="rounded-md border border-[var(--ios-separator)] p-2">
+					<p class="text-[var(--ios-label-tertiary)]">can('DONE')</p>
+					<p class="font-mono" x-text="String(m.can('DONE'))">—</p>
+				</div>
+				<div class="rounded-md border border-[var(--ios-separator)] p-2">
+					<p class="text-[var(--ios-label-tertiary)]">cannot('SUBMIT')</p>
+					<p class="font-mono" x-text="String(m.cannot('SUBMIT'))">—</p>
+				</div>
+			</div>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Each $machine(config) is a different machine"
+		note="Two different graphs live under the same magic key. Press the two buttons alternately: each one moves its own machine and the other does not notice. The ids come from generateId('machine') in core, which is why they differ."
+		code={ISOLATION_CODE}
+	>
+		<div
+			x-data="{
+				list: $machine({
+					initial: 'idle',
+					transitions: [
+						{ name: 'LOAD',  from: 'idle',    to: 'loading' },
+						{ name: 'READY', from: 'loading', to: 'ready' },
+					],
+				}),
+				detail: $machine({
+					initial: 'locked',
+					transitions: [{ name: 'OPEN', from: 'locked', to: 'open' }],
+				}),
+			}"
+			class="space-y-3"
+		>
+			<div class="flex flex-wrap items-center gap-2">
+				<DemoButton @click="list.send('LOAD')">
+					list: <span x-text="list.state">—</span>
+				</DemoButton>
+				<DemoButton @click="detail.send('OPEN')">
+					detail: <span x-text="detail.state">—</span>
+				</DemoButton>
+			</div>
+			<p class="font-mono text-xs text-[var(--ios-label-secondary)]" data-testid="machine-ids">
+				<span x-text="list.id">—</span> · <span x-text="detail.id">—</span>
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Guards: cancelling a transition"
+		note="Tick the checkbox and press OPEN: the transition happens. Untick it and press again: it is cancelled and the machine stays in closed. Watch the message from send() — that is what tells 'cancelled by the guard' apart from 'I did nothing'."
+		code={GUARD_CODE}
+	>
+		<div
+			x-data="{ allow: false, gated: null, last: null }"
+			x-init="gated = $machine({
+				initial: 'closed',
+				transitions: [
+					{ name: 'OPEN', from: 'closed', to: 'open', before: () => allow },
+					{ name: 'CLOSE', from: 'open', to: 'closed' },
+				],
+			})"
+			class="space-y-3"
+		>
+			<label class="flex items-center gap-2 text-sm">
+				<input type="checkbox" x-model="allow" class="size-4 accent-[var(--ios-blue)]" />
+				The guard allows <code>OPEN</code>
+			</label>
+			<div class="flex flex-wrap items-center gap-2">
+				<DemoButton
+					@click="last = gated.send('OPEN') ? 'transitioned' : 'cancelled by the guard'"
+				>
+					OPEN
+				</DemoButton>
+				<DemoButton
+					@click="last = gated.send('CLOSE') ? 'transitioned' : 'cancelled by the guard'"
+				>
+					CLOSE
+				</DemoButton>
+				<span class="text-xs text-[var(--ios-label-secondary)]">
+					state: <strong x-text="gated.state"></strong>
+				</span>
+			</div>
+			<p
+				class="rounded-md bg-[var(--ios-fill-quaternary)] p-2 font-mono text-xs"
+				x-show="last"
+				x-cloak
+			>
+				send() returned: <span x-text="last"></span>
+			</p>
+			<p class="text-xs text-[var(--ios-label-tertiary)]">
+				The button is <strong>not</strong> disabled with the guard closed:
+				<code>can()</code> checks that the edge exists, not that the guard passes. That
+				is why the result of <code>send()</code> is shown separately.
+			</p>
+		</div>
+	</DemoExample>
+</DemoSection>

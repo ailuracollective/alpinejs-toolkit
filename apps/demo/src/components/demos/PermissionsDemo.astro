@@ -1,0 +1,175 @@
+---
+import { getPluginNavItem, playgroundPath } from "../../plugin-nav";
+import Alert from "../astro/Alert.astro";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("permissions")!;
+
+/**
+ * Where the real UI for each capability lives. This page used to re-implement
+ * it — a `geolocation` row that called `getCurrentPosition` and then threw the
+ * coordinates away, so granting permission there appeared to do nothing — and
+ * it contradicted the `notify` section about why notifications were refused.
+ * A registry is a *view* of permissions; the capability owns what it can do.
+ *
+ * Keyed by permission name so each row resolves its own link: rendering this
+ * list with `.map()` inside the `x-for` would repeat all three links on every
+ * row.
+ */
+const capabilityLinks: Record<string, { plugin: string; href: string }> = {
+  notifications: { plugin: "notify", href: playgroundPath("notify") },
+  geolocation: { plugin: "geo", href: playgroundPath("geo") },
+  "screen-wake-lock": { plugin: "attention", href: playgroundPath("attention") },
+};
+
+// The real x-data, the real x-for and the real calls of the registry below.
+const REGISTRY_CODE = `x-data={JSON.stringify({ capabilityLinks })}
+
+<template x-for="name in ['notifications', 'geolocation', 'screen-wake-lock']" :key="name">
+  <div>
+    <!-- Every snapshot starts 'unknown'. Nothing is queried and no browser
+         prompt runs until you call query() or request() yourself. -->
+    <li>Permission:   <strong x-text="$permissions.registry[name]?.permission"></strong></li>
+    <li>Availability: <strong x-text="$permissions.registry[name]?.availability"></strong></li>
+    <li>Can request:  <strong x-text="$permissions.registry[name]?.canRequest"></strong></li>
+
+    <!-- 'platform-restricted' is the adapter's own reason, in its own words.
+         A bare 'denied' sends the user to the wrong settings screen: on iOS
+         the fix is adding the site to the Home Screen, not toggling a setting,
+         and only the adapter knows the difference. -->
+    <Alert x-show="$permissions.registry[name]?.availability === 'platform-restricted'" x-cloak>
+      <span x-text="$permissions.registry[name]?.error?.message"></span>
+    </Alert>
+    <Alert x-show="$permissions.registry[name]?.availability === 'insecure-context'" x-cloak>
+      <span x-text="$permissions.registry[name]?.error?.message"></span>
+    </Alert>
+    <Alert x-show="$permissions.registry[name]?.permission === 'denied'
+                     && $permissions.registry[name]?.availability === 'available'" x-cloak>
+      <span x-text="$permissions.registry[name]?.error?.message"></span>
+    </Alert>
+
+    <!-- query() reads the current state; it NEVER prompts. request() is the
+         only call on the surface that can show a browser dialog, and it needs
+         a user gesture — hence a real click handler. -->
+    <DemoButton @click="await $permissions.query(name)">query()</DemoButton>
+    <DemoButton x-show="$permissions.registry[name]?.canRequest" x-cloak
+                @click="await $permissions.request(name)">request()</DemoButton>
+  </div>
+</template>
+
+// $permissions.get(name) is the non-reactive read of the same snapshot — use
+// the registry in a template and this one in a script.
+//
+// Do NOT reach for watch() with the three shipped adapters: it is declared on
+// the store, but notify, geo and attention implement no subscribe(), so the
+// disposer it hands back is an inert () => {} that has observed nothing.
+// watch() is for adapters YOU write, and then the registry updates by itself.`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-sm text-[var(--ios-label-secondary)] mb-4 text-pretty">
+		A registry is a <strong>view</strong> of permissions: it tracks what each capability reports
+		and nothing else. Adapters are registered with the plugin, so their snapshots start out as
+		<code>unknown</code> until you call <code>query()</code>, and no browser prompt runs until
+		you click <code>request()</code>. Bind to <code>$permissions.registry[name]</code> for
+		reactive updates. Each adapter ships with the package that owns the capability
+		(<code>notify</code>, <code>geo</code>, <code>attention</code>), so this page only reports
+		state — the capability's own playground does the work.
+	</p>
+
+	<DemoExample
+		title="A registry is a view, not a capability"
+		note="Reach for this when one screen has to explain several permissions at once and the user should not be sent to three different settings panels to act on them. The registry knows how to track a permission, never how to obtain one — `request()` returns the snapshot the adapter produced and hands the actual work back to the package that owns the capability."
+		open
+		code={REGISTRY_CODE}
+	>
+		{/*
+			The registry has to be a NAMED key in the scope, not the scope itself.
+			`x-data={JSON.stringify(capabilityLinks)}` spreads the registry as the
+			data object, so the scope would hold `notifications`, `geolocation` and
+			`screen-wake-lock` as top-level keys and `capabilityLinks` would not
+			exist at all — every `capabilityLinks[name]` below then threw
+			"capabilityLinks is not defined" on page load.
+		*/}
+		<div
+			class="space-y-4 text-sm"
+			x-data={JSON.stringify({ capabilityLinks })}
+		>
+			<template x-for="name in ['notifications', 'geolocation', 'screen-wake-lock']" :key="name" data-testid="permissions-capabilities">
+				<div class="rounded-md border border-border p-3">
+					<p class="font-medium" x-text="name"></p>
+					<ul class="list-disc list-inside mt-2 space-y-1">
+						<li>Permission: <strong x-text="$permissions.registry[name]?.permission ?? 'unknown'"></strong></li>
+						<li>Availability: <strong x-text="$permissions.registry[name]?.availability ?? 'unknown'"></strong></li>
+						<li>Can request: <strong x-text="$permissions.registry[name]?.canRequest ?? false"></strong></li>
+					</ul>
+					{/*
+						Why the request cannot succeed, in the adapter's own words. The
+						adapters carry this because a bare "denied" sends users to the wrong
+						place — on iOS the fix is adding the site to the Home Screen, not
+						toggling a setting, and only the adapter knows the difference.
+					*/}
+					<Alert
+						variant="warning"
+						class="mt-3"
+						x-show="$permissions.registry[name]?.availability === 'platform-restricted'"
+						x-cloak
+					>
+						<span
+							x-text="$permissions.registry[name]?.error?.message
+								?? 'This platform will not grant this permission in the current situation.'"
+						></span>
+					</Alert>
+					<Alert
+						variant="warning"
+						class="mt-3"
+						x-show="$permissions.registry[name]?.availability === 'insecure-context'"
+						x-cloak
+					>
+						<span x-text="$permissions.registry[name]?.error?.message"></span>
+					</Alert>
+					<Alert
+						variant="destructive"
+						class="mt-3"
+						x-show="$permissions.registry[name]?.permission === 'denied'
+							&& $permissions.registry[name]?.availability === 'available'"
+						x-cloak
+					>
+						<span
+							x-text="$permissions.registry[name]?.error?.message
+								?? 'Permission denied — the browser did not say why.'"
+						></span>
+					</Alert>
+					<div class="flex flex-wrap gap-2 mt-3">
+						<DemoButton @click="await $permissions.query(name)">query()</DemoButton>
+						<DemoButton
+							x-show="$permissions.registry[name]?.canRequest"
+							x-cloak
+							@click="await $permissions.request(name)"
+						>
+							request()
+						</DemoButton>
+					</div>
+					<ul class="list-disc list-inside mt-2 space-y-1">
+						<li>
+							<a class="underline" :href="capabilityLinks[name]?.href">
+								Use it in the <code x-text="capabilityLinks[name]?.plugin"></code> playground →
+							</a>
+						</li>
+					</ul>
+				</div>
+			</template>
+
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				Do not reach for <code>$permissions.watch(name)</code> here: it is declared on the
+				store, but <code>notify</code>, <code>geo</code> and <code>attention</code> implement
+				no <code>subscribe()</code>, so the disposer it hands back is an inert
+				<code>() =&gt; {}</code> that has observed nothing. It is for adapters you write
+				yourself; binding to <code>$permissions.registry[name]</code> is what actually
+				updates this page.
+			</p>
+		</div>
+	</DemoExample>
+</DemoSection>

@@ -1,0 +1,98 @@
+---
+title: Alpine.js Toolkit
+description: 40 paquetes de Alpine.js. Los controladores manejan el estado, Alpine maneja la reactividad.
+template: splash
+---
+
+import { Aside, Card, CardGrid } from "@astrojs/starlight/components";
+import { ContainerSection, HeroX } from "@six-tech/starlight-theme-six/components";
+
+import logoMark from "../../../assets/logo-dark.svg";
+import logoMarkDark from "../../../assets/logo.svg";
+
+{/*
+`title` y `tagline` se omiten a propósito: HeroX cae en el `title` y la
+`description` del frontmatter de arriba. Mantené la promesa en un solo lugar.
+
+En MDX una línea `//` suelta no es un comentario, es un párrafo de texto, y se
+renderiza en la página. Los comentarios tienen que ser expresiones JSX -- y
+`**\/*.mdx` está excluido de `vp fmt` en vite.config.ts, porque el formateador
+escapa el `/*` de abajo a `/\*`, MDX deja de poder parsearlo y el build de la
+doc se rompe.
+*/}
+
+<HeroX
+  mt="2rem"
+  height={400}
+  radius="1.5rem"
+  titleColor="#f7f4ff"
+  taglineColor="#ddd0fb"
+  image={{
+    light: logoMark,
+    dark: logoMarkDark,
+    alt: "Logo de Alpine.js Toolkit",
+    // La marca es cuadrada — HeroX pone 400 como dimensión faltante, así que
+    // hay que poner las dos o el logo se ve estirado.
+    width: 220,
+    height: 220,
+  }}
+  actions={[
+    { text: "Primeros pasos", link: "/es/guide/getting-started/", variant: "primary" },
+    {
+      text: "Código en GitHub",
+      link: "https://github.com/ailuracollective/alpinejs-toolkit",
+      variant: "minimal",
+      attrs: { target: "_blank", rel: "noopener noreferrer" },
+    },
+  ]}
+/>
+
+<ContainerSection px="0" py="0" mt="3rem">
+  <h2 id="elige-una-capa">Elige una capa</h2>
+  <CardGrid>
+    <Card title="Fundamentos" icon="document">
+      Controladores base, guardas, helpers SSR, la máquina de estados, primitivas de UI y el tooling
+      de test sobre el que se construye todo lo demás. Mira [Fundamentos](/es/plugins/foundation/).
+    </Card>
+    <Card title="Primitivos" icon="puzzle">
+      Env, media, idioma, permisos, selección, gestos, teclado, historial, timer, toasts y más —
+      piezas sin opinión visual. Mira [Primitivos](/es/plugins/primitives/).
+    </Card>
+    <Card title="Características" icon="rocket">
+      Accordion, tabs, dialog, menu, tooltip, carousel, paleta de comandos, theme, sidebar y lista
+      virtual, todos accesibles. Mira [Características](/es/plugins/features/).
+    </Card>
+    <Card title="Datos" icon="database">
+      Cache de queries, adapters y cliente JSON:API para estado asíncrono y remoto. Mira
+      [Datos](/es/plugins/data/).
+    </Card>
+  </CardGrid>
+</ContainerSection>
+
+<ContainerSection px="0" py="0" mt="3rem">
+  <h2 id="un-caon-una-forma">Un cañón, treinta y nueve paquetes</h2>
+
+Cada paquete tiene la misma forma: un controlador agnóstico del framework maneja el
+estado, y un plugin finito lo sincroniza a un store, un magic o una directiva de
+Alpine.
+
+```ts
+import Alpine from "alpinejs";
+import accordion from "@ailura/alpinejs-accordion";
+
+Alpine.plugin(accordion());
+
+Alpine.start();
+```
+
+Como la forma es compartida, la documentación también lo es. Todas las páginas
+siguen el mismo orden — instalar, registrar, un ejemplo que funciona, la tabla de
+la API — así que la primera que leas te enseña las otras treinta y ocho.
+
+  <Aside type="tip" title="Hacia dónde seguir">
+    [Primeros pasos](/es/guide/getting-started/) es el camino mecánico: instalar,
+    registrar, llamar. [Arquitectura](/es/guide/architecture/) es el razonamiento
+    detrás del snippet de arriba — el ciclo de vida del controlador, las guardas de
+    registro y las reglas de SSR. O elige una capa arriba y empieza por ahí.
+  </Aside>
+</ContainerSection>

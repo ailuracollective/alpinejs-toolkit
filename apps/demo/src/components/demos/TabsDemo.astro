@@ -1,0 +1,190 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("tabs")!;
+const tabClasses =
+	"rounded-md px-3 py-2 text-sm font-medium data-[active]:bg-[var(--ios-blue)] data-[active]:text-white hover:bg-[var(--ios-fill-quaternary)]";
+
+const HORIZONTAL_CODE = `x-data="{ tabs: ['profile', 'billing', 'security'] }"
+x-init="(() => {
+  $store.tabs.create('settings', { defaultTab: 'profile' });
+  tabs.forEach(id => $store.tabs.createItem('settings', id));
+})()"
+
+<!-- role and aria-orientation never change: one single x-bind -->
+<div x-bind="$store.tabs.tablistProps('settings')"
+     @keydown="$store.tabs.handleKeydown('settings', $event)">
+  <template x-for="id in tabs" :key="id">
+    <button
+      x-bind="$store.tabs.tabProps('settings', id)"
+      :aria-selected="$store.tabs.isActive('settings', id)"
+      :tabindex="$store.tabs.isActive('settings', id) ? 0 : -1"
+      @click="$store.tabs.select('settings', id)"
+      x-text="id"
+    ></button>
+  </template>
+</div>
+
+<template x-for="id in tabs" :key="id">
+  <div x-bind="$store.tabs.panelProps('settings', id)"
+       :hidden="!$store.tabs.isActive('settings', id)"
+       x-text="id"></div>
+</template>
+
+<!-- The orientation decides which arrows work: in 'horizontal' only ←/→, and
+     ArrowDown passes through untouched to the page (for example to a panel
+     with scroll). -->
+<button @click="$store.tabs.previous('settings')">previous()</button>
+<button @click="$store.tabs.next('settings')">next()</button>`;
+
+const VERTICAL_CODE = `x-data="{ tabs: ['general', 'members', 'danger'] }"
+x-init="(() => {
+  $store.tabs.create('settings-v', { orientation: 'vertical', defaultTab: 'general' });
+  tabs.forEach(id => $store.tabs.createItem('settings-v', id));
+})()"
+
+<!-- Now orientation: 'vertical' → tablistProps() emits
+     aria-orientation="vertical" and handleKeydown() responds to ↑/↓ -->
+<div class="flex gap-4">
+  <div x-bind="$store.tabs.tablistProps('settings-v')"
+       @keydown="$store.tabs.handleKeydown('settings-v', $event)">
+    <template x-for="id in tabs" :key="id">
+      <button
+        x-bind="$store.tabs.tabProps('settings-v', id)"
+        :aria-selected="$store.tabs.isActive('settings-v', id)"
+        :tabindex="$store.tabs.isActive('settings-v', id) ? 0 : -1"
+        @click="$store.tabs.select('settings-v', id)"
+        x-text="id"
+      ></button>
+    </template>
+  </div>
+
+  <template x-for="id in tabs" :key="id">
+    <div x-bind="$store.tabs.panelProps('settings-v', id)"
+         :hidden="!$store.tabs.isActive('settings-v', id)"
+         x-text="id"></div>
+  </template>
+</div>`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<div class="grid gap-6">
+		<DemoExample
+			title="One visible panel, navigable with the arrow keys"
+			note="Press a tab and then use ←/→, Home and End inside the list. Only one panel is left without hidden at a time, and the active tab is the only one with tabindex=0 — the rest stay reachable with the mouse."
+			open
+			code={HORIZONTAL_CODE}
+		>
+			<div
+				class="grid gap-4"
+				x-data="{ tabs: ['profile', 'billing', 'security'] }"
+				x-init="(() => {
+					$store.tabs.create('settings-tabs', { defaultTab: 'profile' });
+					tabs.forEach(id => $store.tabs.createItem('settings-tabs', id));
+				})()"
+			>
+				<p class="text-xs text-[var(--ios-label-secondary)]">
+					Active: <strong x-text="$store.tabs.active('settings-tabs')"></strong> · arrows, Home
+					and End move between tabs
+				</p>
+
+				{/*
+					A `*Props()` helper returns an OBJECT, and Alpine evaluates
+					object-form `x-bind` exactly once — it has no effect to re-run it.
+					So the values that change have to be bound per attribute; only the
+					invariant ones may go through `x-bind`. This demo used to bind all
+					of them as an object, which froze `aria-selected`, `tabindex` and
+					`hidden` at their first value: the tab button highlighted correctly
+					(its `:data-active` was a reactive expression) while the panels
+					never swapped.
+				*/}
+				<div
+					class="inline-flex gap-1 rounded-lg border p-1"
+					x-bind="$store.tabs.tablistProps('settings-tabs')"
+					@keydown="$store.tabs.handleKeydown('settings-tabs', $event)"
+				>
+					<template x-for="id in tabs" :key="id" data-testid="tabs-list">
+						<button
+							type="button"
+							class={tabClasses}
+							:data-active="$store.tabs.isActive('settings-tabs', id) ? '' : null"
+							x-bind="$store.tabs.tabProps('settings-tabs', id)"
+							:aria-selected="$store.tabs.isActive('settings-tabs', id)"
+							:tabindex="$store.tabs.isActive('settings-tabs', id) ? 0 : -1"
+							@click="$store.tabs.select('settings-tabs', id)"
+							x-text="id"
+						></button>
+					</template>
+				</div>
+
+				<template x-for="id in tabs" :key="id">
+					<div
+						class="mt-4 rounded-md border p-4 text-sm"
+						x-bind="$store.tabs.panelProps('settings-tabs', id)"
+						:hidden="!$store.tabs.isActive('settings-tabs', id)"
+					>
+						Panel: <strong x-text="id"></strong>
+					</div>
+				</template>
+
+				<div class="flex gap-2">
+					<DemoButton size="sm" @click="$store.tabs.previous('settings-tabs')">
+						previous()
+					</DemoButton>
+					<DemoButton size="sm" @click="$store.tabs.next('settings-tabs')">next()</DemoButton>
+				</div>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="The orientation decides which arrows work"
+			note="Same markup, a different create(). In vertical, tablistProps() emits aria-orientation='vertical' and handleKeydown() responds to ↑/↓ instead of ←/→ — the pair that does not match is left to the page. The store keeps both lists at once, under different ids."
+			code={VERTICAL_CODE}
+		>
+			<div
+				x-data="{ tabs: ['general', 'members', 'danger'] }"
+				x-init="(() => {
+					$store.tabs.create('settings-vertical', {
+						orientation: 'vertical',
+						defaultTab: 'general',
+					});
+					tabs.forEach(id => $store.tabs.createItem('settings-vertical', id));
+				})()"
+			>
+				<div class="flex flex-col gap-4 sm:flex-row">
+					<div
+						class="inline-flex shrink-0 gap-1 self-start rounded-lg border p-1 sm:flex-col"
+						x-bind="$store.tabs.tablistProps('settings-vertical')"
+						@keydown="$store.tabs.handleKeydown('settings-vertical', $event)"
+					>
+						<template x-for="id in tabs" :key="id">
+							<button
+								type="button"
+								class={tabClasses}
+								:data-active="$store.tabs.isActive('settings-vertical', id) ? '' : null"
+								x-bind="$store.tabs.tabProps('settings-vertical', id)"
+								:aria-selected="$store.tabs.isActive('settings-vertical', id)"
+								:tabindex="$store.tabs.isActive('settings-vertical', id) ? 0 : -1"
+								@click="$store.tabs.select('settings-vertical', id)"
+								x-text="id"
+							></button>
+						</template>
+					</div>
+
+					<template x-for="id in tabs" :key="id">
+						<div
+							class="flex-1 rounded-md border p-4 text-sm"
+							x-bind="$store.tabs.panelProps('settings-vertical', id)"
+							:hidden="!$store.tabs.isActive('settings-vertical', id)"
+						>
+							Panel: <strong x-text="id"></strong>
+						</div>
+					</template>
+				</div>
+			</div>
+		</DemoExample>
+	</div>
+</DemoSection>

@@ -1,0 +1,78 @@
+name: Bug report
+description: Report a defect in alpinejs-toolkit — wrong behavior, an error, or a crash.
+labels: ["bug", "status:needs-review"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. This form creates a report with the `bug` and
+        `status:needs-review` labels. A maintainer reviews it and adds `status:approved`
+        once the defect is understood and someone picks it up.
+
+        Please keep the report reproducible and free of sensitive data. Logs and
+        snippets are collected further down — redact tokens, credentials, private paths,
+        and customer data before pasting.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      description: Both items are required before this report can be triaged.
+      options:
+        - label: I searched the existing open and closed issues for this defect.
+          required: true
+        - label: I removed credentials, tokens, and private filesystem paths from this
+            report and from any pasted logs.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is broken, and what does the user see as a result?
+      placeholder: |
+        Counting stops at 1 when the store is initialized from a JSON payload.
+    validations:
+      required: true
+  - type: textarea
+    id: steps_to_reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Numbered, minimal steps starting from a clean checkout.
+      placeholder: |
+        1. pnpm install
+        2. pnpm dev
+        3. Open the counter example
+        4. Click "increment" twice
+    validations:
+      required: true
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs actual
+      description: What you expected to happen, and what happened instead.
+      placeholder: |
+        Expected: the counter reaches 3.
+        Actual: the counter stays at 1 and the console logs a store hydration warning.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Optional. Paste only the lines that matter, with secrets redacted. Use a code
+        fence so the formatting is preserved.
+      render: shell
+      placeholder: |
+        [store] hydration mismatch: expected 1, received 0
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Runtime and toolchain version
+      description: |
+        Node version from `.node-version`, the package version of alpinejs-toolkit, and
+        your package manager version (for example `node -v && pnpm -v`).
+      placeholder: "Node 22.x, alpinejs-toolkit 0.4.0, pnpm 12.3.4"
+    validations:
+      required: true

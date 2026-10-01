@@ -1,0 +1,559 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import Kbd from "../astro/Kbd.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("carousel")!;
+const viewportClass = "min-w-0 w-full max-w-full overflow-hidden rounded-lg border";
+const containerH = "flex touch-pan-y pinch-zoom";
+const containerV = "flex h-full touch-pan-x pinch-zoom flex-col";
+const slideCard =
+	"flex min-h-32 items-center justify-center rounded-lg border bg-[var(--ios-fill-quaternary)]/40 text-sm font-medium";
+const slideH = `${slideCard} min-w-0 shrink-0 grow-0 [flex:0_0_var(--slide-size,100%)]`;
+const slideV = `${slideCard} min-h-0 min-w-0 shrink-0 grow-0 [flex:0_0_var(--slide-size,100%)]`;
+
+const BASIC_CODE = `<div x-data>
+  <!-- x-carousel creates the instance AND makes this element the viewport.
+       The id goes in single quotes: the expression is evaluated, so
+       x-carousel="hero" would bind a variable called hero. -->
+  <div
+    x-carousel="'basic'"
+    x-bind="$store.carousel.viewportProps('basic')"
+    @keydown="$store.carousel.handleKeydown('basic', $event)"
+    class="overflow-hidden rounded-lg border"
+  >
+    <div class="flex">
+      <div x-bind="$store.carousel.slideProps('basic', 0)" style="flex:0 0 100%">Slide 1</div>
+      <div x-bind="$store.carousel.slideProps('basic', 1)" style="flex:0_0 100%">Slide 2</div>
+      <div x-bind="$store.carousel.slideProps('basic', 2)" style="flex:0_0 100%">Slide 3</div>
+    </div>
+  </div>
+
+  <!-- canPrevious/canNext come from the engine, not from a counter of your own -->
+  <button @click="$store.carousel.previous('basic')"
+          :disabled="!$store.carousel.instances.basic?.canPrevious">Previous</button>
+  <button @click="$store.carousel.next('basic')"
+          :disabled="!$store.carousel.instances.basic?.canNext">Next</button>
+</div>`;
+
+const LOOP_CODE = `<!-- The options bag and the id in the SAME attribute:
+     id belongs to the directive, not to CarouselOptions. -->
+<div
+  x-carousel="{ id: 'loop', loop: true }"
+  x-bind="$store.carousel.viewportProps('loop')"
+  @keydown="$store.carousel.handleKeydown('loop', $event)"
+  class="overflow-hidden rounded-lg border"
+>
+  <div class="flex">
+    <template x-for="n in 4" :key="n">
+      <div x-bind="$store.carousel.slideProps('loop', n - 1)"
+           style="flex:0_0 100%" x-text="'Loop slide ' + n"></div>
+    </template>
+  </div>
+</div>
+
+<button @click="$store.carousel.previous('loop')">Previous</button>
+<button @click="$store.carousel.next('loop')">Next</button>
+
+<!-- With loop:true both buttons stay enabled at the ends:
+     canNext/canPrevious are returned by Embla, not by an index. -->`;
+
+const AUTOPLAY_CODE = `<div
+  x-carousel="{ id: 'auto', autoplay: true, autoplayOptions: { delay: 2500 } }"
+  x-bind="$store.carousel.viewportProps('auto')"
+  class="overflow-hidden rounded-lg border"
+>
+  <div class="flex">
+    <template x-for="n in 3" :key="n">
+      <div x-bind="$store.carousel.slideProps('auto', n - 1)"
+           style="flex:0_0 100%" x-text="'Auto ' + n"></div>
+    </template>
+  </div>
+</div>
+
+<button @click="$store.carousel.play('auto')">Play</button>
+<button @click="$store.carousel.pause('auto')">Pause</button>
+
+<!-- Careful: play() and pause() are not symmetric.
+     play()  calls Embla's autoplay plugin and sets isPlaying = true.
+     pause() ONLY sets isPlaying = false: it never calls autoplay.pause(),
+     so the carousel keeps advancing even though the store says otherwise. -->`;
+
+const STOP_CODE = `<div
+  x-carousel="{
+    id: 'stop',
+    autoplay: true,
+    autoplayOptions: { delay: 2000, stopOnInteraction: true },
+  }"
+  x-bind="$store.carousel.viewportProps('stop')"
+  class="overflow-hidden rounded-lg border"
+>
+  <div class="flex">
+    <template x-for="n in 3" :key="n">
+      <div x-bind="$store.carousel.slideProps('stop', n - 1)"
+           style="flex:0_0 100%" x-text="'Auto ' + n"></div>
+    </template>
+  </div>
+</div>
+
+<!-- Drag the slides or use a control: autoplay stops dead.
+     Hover over it and it does NOT stop: stopOnMouseEnter,
+     stopOnFocusIn and stopWhenHidden are declared in the type and are never
+     sent to Embla on any code path. -->`;
+
+const INDICATORS_CODE = `<div
+  x-carousel="'dots'"
+  x-bind="$store.carousel.viewportProps('dots')"
+  @keydown="$store.carousel.handleKeydown('dots', $event)"
+  class="overflow-hidden rounded-lg border"
+>
+  <div class="flex">
+    <template x-for="n in 5" :key="n">
+      <div x-bind="$store.carousel.slideProps('dots', n - 1)"
+           style="flex:0_0 100%" x-text="'Dot ' + n"></div>
+    </template>
+  </div>
+</div>
+
+<!-- The raw button is right here: indicatorProps() gives it type="button",
+     aria-label="Go to slide N" and aria-current, and a chrome variant would
+     clobber exactly the attributes being demonstrated. -->
+<template x-for="n in 5" :key="'dot-' + n">
+  <button
+    type="button"
+    x-bind="$store.carousel.indicatorProps('dots', n - 1)"
+    class="size-3 rounded-full border-2"
+    :class="$store.carousel.instances.dots?.currentIndex === n - 1 ? 'bg-[var(--ios-blue)]' : ''"
+    @click="$store.carousel.goTo('dots', n - 1)"
+  ></button>
+</template>`;
+
+const THUMBS_CODE = `<div
+  x-carousel="'thumbs'"
+  x-bind="$store.carousel.viewportProps('thumbs')"
+  class="overflow-hidden rounded-lg border"
+>
+  <div class="flex">
+    <template x-for="slide in imageSlides" :key="slide.id">
+      <div x-bind="$store.carousel.slideProps('thumbs', slide.id - 1)"
+           class="min-h-40" style="flex:0_0 100%" x-text="slide.title"></div>
+    </template>
+  </div>
+</div>
+
+<template x-for="slide in imageSlides" :key="'thumb-' + slide.id">
+  <button
+    type="button"
+    x-bind="$store.carousel.indicatorProps('thumbs', slide.id - 1)"
+    class="h-12 flex-1 rounded border"
+    :class="$store.carousel.instances.thumbs?.currentIndex === slide.id - 1 ? 'ring-2' : 'opacity-70'"
+    @click="$store.carousel.goTo('thumbs', slide.id - 1)"
+    x-text="slide.title"
+  ></button>
+</template>
+
+<!-- One carousel, two navigation blocks: the id is the only thing that
+     ties them together. goTo() does not care whether the button "is" an indicator. -->`;
+
+const VERTICAL_CODE = `<div
+  x-carousel="{ id: 'v', axis: 'y' }"
+  x-bind="$store.carousel.viewportProps('v')"
+  @keydown="$store.carousel.handleKeydown('v', $event)"
+  class="h-40 overflow-hidden rounded-lg border"
+>
+  <div class="flex h-full flex-col">
+    <template x-for="n in 4" :key="n">
+      <div x-bind="$store.carousel.slideProps('v', n - 1)"
+           style="flex:0_0 100%" x-text="'Vertical ' + n"></div>
+    </template>
+  </div>
+</div>
+
+<button @click="$store.carousel.previous('v')">Up</button>
+<button @click="$store.carousel.next('v')">Down</button>
+
+<!-- One axis option. The container needs an explicit height
+     (h-40) and the slides flex-basis:100% so Embla has something to measure. -->`;
+
+const GALLERY_CODE = `<!-- Carousel with no controls: Embla's drag and wheel are enough. -->
+<div
+  x-carousel="{ id: 'gallery', loop: true }"
+  x-bind="$store.carousel.viewportProps('gallery')"
+  class="overflow-hidden rounded-lg border"
+>
+  <div class="flex">
+    <template x-for="slide in imageSlides" :key="'img-' + slide.id">
+      <div x-bind="$store.carousel.slideProps('gallery', slide.id - 1)"
+           class="relative aspect-video" style="flex:0_0 100%">
+        <div class="absolute inset-0 flex items-center justify-center"
+             x-text="slide.title"></div>
+      </div>
+    </template>
+  </div>
+</div>`;
+
+const CARDS_CODE = `<div
+  x-carousel="{ id: 'cards', align: 'start' }"
+  x-bind="$store.carousel.viewportProps('cards', { slideSize: false })"
+  class="overflow-hidden rounded-lg [--slide-size:85%] sm:[--slide-size:45%]"
+>
+  <div class="flex gap-3">
+    <template x-for="slide in cardSlides" :key="'card-' + slide.id">
+      <!-- slideProps() sets aria-hidden on every slide that is not the
+           selected one. With several visible at once that hides one which is
+           on screen, so here the attribute is overridden by hand. -->
+      <div x-bind="$store.carousel.slideProps('cards', slide.id - 1)"
+           :aria-hidden="$store.carousel.instances.cards?.currentIndex === slide.id - 1 ? undefined : true"
+           class="min-w-0 shrink-0 grow-0 [flex:0_0_var(--slide-size)]">
+        <div class="rounded-lg border p-4">
+          <h4 x-text="slide.title"></h4>
+          <p x-text="slide.price"></p>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- slideSize:false makes viewportProps NOT write a style, and the
+     --slide-size is declared by the markup. That is the way to put the size in
+     a media query. -->`;
+
+const KEYBOARD_CODE = `<div
+  x-carousel="'keys'"
+  x-bind="$store.carousel.viewportProps('keys')"
+  @keydown="$store.carousel.handleKeydown('keys', $event)"
+  class="overflow-hidden rounded-lg border focus-visible:ring-2"
+>
+  <div class="flex">
+    <template x-for="n in 6" :key="n">
+      <div x-bind="$store.carousel.slideProps('keys', n - 1)"
+           style="flex:0_0 100%" x-text="'Key slide ' + n"></div>
+    </template>
+  </div>
+</div>
+
+<!-- viewportProps() sets tabindex="0": the viewport is ONE tab stop, and
+     that is where the keyboard comes from. There is no focus trap — tabbing
+     moves on to the next control. -->`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-sm text-[var(--ios-label-secondary)] text-pretty">
+		Embla does the scrolling, the drag and the snap; this package decides what
+		it is asked and what state is left in the store. Every carousel on the
+		page mounts with one attribute: <code>x-carousel</code> creates the instance
+		and uses the element itself as the viewport, and its <code>cleanup()</code>
+		releases the engine when Alpine takes the element out of the tree.
+	</p>
+
+	<div
+		class="grid min-w-0 gap-6"
+		x-data="{
+			imageSlides: [
+				{ id: 1, title: 'Mountain lake', color: 'bg-sky-200 dark:bg-sky-900' },
+				{ id: 2, title: 'Desert dunes', color: 'bg-amber-200 dark:bg-amber-900' },
+				{ id: 3, title: 'Forest trail', color: 'bg-emerald-200 dark:bg-emerald-900' },
+			],
+			cardSlides: [
+				{ id: 1, title: 'Starter', price: '$9', detail: 'For side projects' },
+				{ id: 2, title: 'Pro', price: '$29', detail: 'For growing teams' },
+				{ id: 3, title: 'Enterprise', price: 'Custom', detail: 'For large orgs' },
+			],
+			stateLine(id) {
+				const s = $store.carousel.instances[id];
+				if (!s) return '—';
+				return `index ${s.currentIndex + 1}/${s.totalSlides} · progress ${(s.progress * 100).toFixed(0)}% · playing ${s.isPlaying}`;
+			},
+		}"
+	>
+		<DemoExample
+			title="One attribute creates the instance and makes it the viewport"
+			note="This is the short path: no create(), no $nextTick, no querySelector. The id goes in single quotes because the expression is evaluated — x-carousel=&quot;hero&quot; would bind a variable called hero."
+			open
+			code={BASIC_CODE}
+		>
+			<div class="min-w-0">
+				<p class="text-xs text-[var(--ios-label-secondary)] mb-3" x-text="stateLine('basic')"></p>
+				<section class="min-w-0 w-full" x-bind="$store.carousel.carouselProps('basic', { label: 'Basic carousel' })">
+					<div
+						x-carousel="'basic'"
+						x-bind="$store.carousel.viewportProps('basic')"
+						class={viewportClass}
+						@keydown="$store.carousel.handleKeydown('basic', $event)"
+					>
+						<div class={containerH}>
+							<div x-bind="$store.carousel.slideProps('basic', 0)" class={slideH}>Slide 1</div>
+							<div x-bind="$store.carousel.slideProps('basic', 1)" class={slideH}>Slide 2</div>
+							<div x-bind="$store.carousel.slideProps('basic', 2)" class={slideH}>Slide 3</div>
+						</div>
+					</div>
+					<div class="mt-3 flex gap-2">
+						<DemoButton size="sm" :disabled="!$store.carousel.instances.basic?.canPrevious" @click="$store.carousel.previous('basic')" data-testid="carousel-previous">Previous</DemoButton>
+						<DemoButton size="sm" :disabled="!$store.carousel.instances.basic?.canNext" @click="$store.carousel.next('basic')">Next</DemoButton>
+					</div>
+				</section>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Loop: the ends stop being dead ends"
+			note="With loop:true, canNext and canPrevious stay true on the first and the last slide — those flags come from Embla, not from an index of your own."
+			open
+			code={LOOP_CODE}
+		>
+			<div class="min-w-0">
+				<p class="text-xs text-[var(--ios-label-secondary)] mb-3" x-text="stateLine('loop')"></p>
+				<section class="min-w-0 w-full" x-bind="$store.carousel.carouselProps('loop', { label: 'Loop carousel' })">
+					<div x-carousel="{ id: 'loop', loop: true }" x-bind="$store.carousel.viewportProps('loop')" class={viewportClass} @keydown="$store.carousel.handleKeydown('loop', $event)">
+						<div class={containerH}>
+							<template x-for="n in 4" :key="n">
+								<div x-bind="$store.carousel.slideProps('loop', n - 1)" class={slideH} x-text="'Loop slide ' + n"></div>
+							</template>
+						</div>
+					</div>
+					<div class="mt-3 flex gap-2">
+						<DemoButton size="sm" @click="$store.carousel.previous('loop')">Previous</DemoButton>
+						<DemoButton size="sm" @click="$store.carousel.next('loop')">Next</DemoButton>
+					</div>
+				</section>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Autoplay, and a pause() that does not pause"
+			note="play() reaches the engine; pause() only lowers the isPlaying flag and never calls autoplay.pause(). Press Pause and watch: the store says stopped and the carousel keeps advancing."
+			open
+			code={AUTOPLAY_CODE}
+		>
+			<div class="min-w-0">
+				<p class="text-xs text-[var(--ios-label-secondary)] mb-3">
+					Advances every 2.5 s. <code>pause()</code> only lowers the
+					<code>isPlaying</code> flag: it does not reach Embla, so the carousel
+					keeps going.
+					<span x-text="stateLine('autoplay')"></span>
+				</p>
+				<section class="min-w-0 w-full" x-bind="$store.carousel.carouselProps('autoplay', { label: 'Autoplay carousel' })">
+					<div x-carousel="{ id: 'autoplay', autoplay: true, autoplayOptions: { delay: 2500 } }" x-bind="$store.carousel.viewportProps('autoplay')" class={viewportClass}>
+						<div class={containerH}>
+							<template x-for="n in 3" :key="n">
+								<div x-bind="$store.carousel.slideProps('autoplay', n - 1)" class={`${slideH} bg-[var(--ios-blue)]/10`} x-text="'Auto ' + n"></div>
+							</template>
+						</div>
+					</div>
+					<div class="mt-3 flex gap-2">
+						<DemoButton size="sm" @click="$store.carousel.play('autoplay')">Play</DemoButton>
+						<DemoButton size="sm" @click="$store.carousel.pause('autoplay')">Pause</DemoButton>
+					</div>
+				</section>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Autoplay stops on interaction… and only for that"
+			note="Drag the slides or use a control and autoplay stops dead. Hover over it and nothing happens: stopOnMouseEnter, stopOnFocusIn and stopWhenHidden are declared in the type and never reach Embla."
+			open
+			code={STOP_CODE}
+		>
+			<div class="min-w-0">
+				<p class="text-xs text-[var(--ios-label-secondary)] mb-3">
+					Drag the slides or use a control and autoplay stops dead. Hover over it
+					and nothing happens: <code>stopOnMouseEnter</code>,
+					<code>stopOnFocusIn</code> and <code>stopWhenHidden</code> are declared in
+					the type and never reach Embla. <span x-text="stateLine('autoplay-interaction')"></span>
+				</p>
+				<section class="min-w-0 w-full" x-bind="$store.carousel.carouselProps('autoplay-interaction', { label: 'Autoplay stops on interaction' })">
+					<div x-carousel="{ id: 'autoplay-interaction', autoplay: true, autoplayOptions: { delay: 2000, stopOnInteraction: true } }" x-bind="$store.carousel.viewportProps('autoplay-interaction')" class={viewportClass} @keydown="$store.carousel.handleKeydown('autoplay-interaction', $event)">
+						<div class={containerH}>
+							<template x-for="n in 3" :key="n">
+								<div x-bind="$store.carousel.slideProps('autoplay-interaction', n - 1)" class={slideH} x-text="'Auto ' + n"></div>
+							</template>
+						</div>
+					</div>
+					<div class="mt-3 flex gap-2">
+						<DemoButton size="sm" @click="$store.carousel.next('autoplay-interaction')">Next</DemoButton>
+						<DemoButton size="sm" @click="$store.carousel.previous('autoplay-interaction')">Previous</DemoButton>
+					</div>
+				</section>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Indicators: the dots carry their own ARIA"
+			note="The raw button is right in this case — indicatorProps() gives it type=&quot;button&quot;, aria-label and aria-current, and a chrome variant would clobber exactly the attributes being demonstrated."
+			open
+			code={INDICATORS_CODE}
+		>
+			<div class="min-w-0">
+				<p class="text-xs text-[var(--ios-label-secondary)] mb-3" x-text="stateLine('indicators')"></p>
+				<section class="min-w-0 w-full" x-bind="$store.carousel.carouselProps('indicators', { label: 'Carousel with indicators' })">
+					<div x-carousel="'indicators'" x-bind="$store.carousel.viewportProps('indicators')" class={viewportClass} @keydown="$store.carousel.handleKeydown('indicators', $event)">
+						<div class={containerH}>
+							<template x-for="n in 5" :key="n">
+								<div x-bind="$store.carousel.slideProps('indicators', n - 1)" class={slideH} x-text="'Dot ' + n"></div>
+							</template>
+						</div>
+					</div>
+					<div class="mt-3 flex flex-wrap items-center justify-center gap-2.5" role="tablist" aria-label="Slide indicators">
+						<template x-for="n in 5" :key="'dot-' + n">
+							<button
+								type="button"
+								x-bind="$store.carousel.indicatorProps('indicators', n - 1)"
+								class="size-3 shrink-0 rounded-full border-2 transition-colors"
+								:class="$store.carousel.instances.indicators?.currentIndex === n - 1 ? 'bg-[var(--ios-blue)] border-[var(--ios-blue)]' : 'bg-[var(--ios-fill-quaternary)] border-[var(--ios-label-tertiary)]/60'"
+								@click="$store.carousel.goTo('indicators', n - 1)"
+							></button>
+						</template>
+					</div>
+				</section>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Thumbnails: one carousel, two ways to navigate it"
+			note="The id is the only thing tying the thumbnails to the viewport. goTo() does not require the button to be an indicator — what this demonstrates is that navigation is just one call."
+			open
+			code={THUMBS_CODE}
+		>
+			<div class="min-w-0">
+				<p class="text-xs text-[var(--ios-label-secondary)] mb-3" x-text="stateLine('thumbnails')"></p>
+				<section class="min-w-0 w-full" x-bind="$store.carousel.carouselProps('thumbnails', { label: 'Carousel with thumbnails' })">
+					<div x-carousel="'thumbnails'" x-bind="$store.carousel.viewportProps('thumbnails')" class={viewportClass}>
+						<div class={containerH}>
+							<template x-for="slide in imageSlides" :key="slide.id">
+								<div
+									x-bind="$store.carousel.slideProps('thumbnails', slide.id - 1)"
+									class={`${slideH} min-h-40 text-sm font-semibold`}
+									x-bind:class="slide.color"
+									x-text="slide.title"
+								></div>
+							</template>
+						</div>
+					</div>
+					<div class="mt-3 flex gap-2" role="tablist" aria-label="Thumbnail navigation">
+						<template x-for="slide in imageSlides" :key="'thumb-' + slide.id">
+							<button
+								type="button"
+								x-bind="$store.carousel.indicatorProps('thumbnails', slide.id - 1)"
+								class="h-12 flex-1 rounded border text-[10px] font-medium transition-colors"
+								x-bind:class="[
+									slide.color,
+									$store.carousel.instances.thumbnails?.currentIndex === slide.id - 1 ? 'ring-2 ring-[var(--ios-blue)]' : 'opacity-70 hover:opacity-100',
+								]"
+								@click="$store.carousel.goTo('thumbnails', slide.id - 1)"
+								x-text="slide.title"
+							></button>
+						</template>
+					</div>
+				</section>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Vertical: one option, and the container needs a height"
+			note="axis:'y' switches the axis. The viewport needs an explicit height (h-40) and the slides flex-basis:100%; without a box to measure, Embla has nothing to mount."
+			open
+			code={VERTICAL_CODE}
+		>
+			<div class="min-w-0">
+				<p class="text-xs text-[var(--ios-label-secondary)] mb-3" x-text="stateLine('vertical')"></p>
+				<section class="min-w-0 w-full" x-bind="$store.carousel.carouselProps('vertical', { label: 'Vertical carousel' })">
+					<div x-carousel="{ id: 'vertical', axis: 'y' }" x-bind="$store.carousel.viewportProps('vertical')" class={`${viewportClass} h-40`} @keydown="$store.carousel.handleKeydown('vertical', $event)">
+						<div class={containerV}>
+							<template x-for="n in 4" :key="n">
+								<div x-bind="$store.carousel.slideProps('vertical', n - 1)" class={slideV} x-text="'Vertical ' + n"></div>
+							</template>
+						</div>
+					</div>
+					<div class="mt-3 flex gap-2">
+						<DemoButton size="sm" @click="$store.carousel.previous('vertical')">Up</DemoButton>
+						<DemoButton size="sm" @click="$store.carousel.next('vertical')">Down</DemoButton>
+					</div>
+				</section>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Gallery with no controls: drag and wheel"
+			note="A carousel does not need a single button. The minimum is the viewport with x-carousel and the slides with slideProps()."
+			open
+			code={GALLERY_CODE}
+		>
+			<div class="min-w-0">
+				<p class="text-xs text-[var(--ios-label-secondary)] mb-3" x-text="stateLine('images')"></p>
+				<section class="min-w-0 w-full" x-bind="$store.carousel.carouselProps('images', { label: 'Image gallery' })">
+					<div x-carousel="{ id: 'images', loop: true }" x-bind="$store.carousel.viewportProps('images')" class={viewportClass}>
+						<div class={containerH}>
+							<template x-for="slide in imageSlides" :key="'img-' + slide.id">
+								<div x-bind="$store.carousel.slideProps('images', slide.id - 1)" class={`${slideH} relative aspect-video overflow-hidden`}>
+									<div class="absolute inset-0 flex items-center justify-center text-lg font-semibold" x-bind:class="slide.color" x-text="slide.title"></div>
+								</div>
+							</template>
+						</div>
+					</div>
+				</section>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Several slides visible: slideSize and aria-hidden by hand"
+			note="slideSize:false makes viewportProps not write the style and the --slide-size is declared by the markup, which is the way to put it in a media query. With several slides in view, slideProps() marks aria-hidden on all but the selected one — which is why it is controlled by hand here."
+			open
+			code={CARDS_CODE}
+		>
+			<div class="min-w-0">
+				<p class="text-xs text-[var(--ios-label-secondary)] mb-3" x-text="stateLine('cards')"></p>
+				<section class="min-w-0 w-full" x-bind="$store.carousel.carouselProps('cards', { label: 'Pricing cards carousel' })">
+					<div x-carousel="{ id: 'cards', align: 'start' }" x-bind="$store.carousel.viewportProps('cards', { slideSize: false })" class="min-w-0 w-full max-w-full overflow-hidden rounded-lg [--slide-size:85%] sm:[--slide-size:45%]">
+						<div class="flex gap-3 touch-pan-y pinch-zoom">
+							<template x-for="slide in cardSlides" :key="'card-' + slide.id">
+								<div x-bind="$store.carousel.slideProps('cards', slide.id - 1)" class="min-w-0 shrink-0 grow-0 [flex:0_0_var(--slide-size)]" :aria-hidden="$store.carousel.instances.cards?.currentIndex === slide.id - 1 ? undefined : true">
+									<div class="rounded-lg border bg-[var(--ios-bg-secondary)] p-4 shadow-sm">
+										<h4 class="font-semibold" x-text="slide.title"></h4>
+										<p class="text-2xl font-bold mt-1" x-text="slide.price"></p>
+										<p class="text-xs text-[var(--ios-label-secondary)] mt-2" x-text="slide.detail"></p>
+									</div>
+								</div>
+							</template>
+						</div>
+					</div>
+				</section>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Keyboard: the viewport is a single tab stop"
+			note="viewportProps() sets tabindex=0, and that is where the keyboard comes from. There is no focus trap — tabbing moves on to the next control."
+			open
+			code={KEYBOARD_CODE}
+		>
+			<div class="min-w-0">
+				<p class="text-xs text-[var(--ios-label-secondary)] mb-3">
+					Focus the viewport and use the arrow keys, <code>Home</code> or
+					<code>End</code>.
+					<span x-text="stateLine('keyboard')"></span>
+				</p>
+				<section class="min-w-0 w-full" x-bind="$store.carousel.carouselProps('keyboard', { label: 'Keyboard carousel' })">
+					<div
+						x-carousel="'keyboard'"
+						x-bind="$store.carousel.viewportProps('keyboard')"
+						class={`${viewportClass} focus-visible:ring-2 focus-visible:ring-[var(--ios-blue)]`}
+						@keydown="$store.carousel.handleKeydown('keyboard', $event)"
+					>
+						<div class={containerH}>
+							<template x-for="n in 6" :key="n">
+								<div x-bind="$store.carousel.slideProps('keyboard', n - 1)" class={slideH} x-text="'Key slide ' + n"></div>
+							</template>
+						</div>
+					</div>
+				</section>
+				<ul class="mt-2 text-xs text-[var(--ios-label-secondary)] list-disc pl-5 space-y-1">
+					<li><Kbd>←</Kbd> <Kbd>↑</Kbd> previous</li>
+					<li><Kbd>→</Kbd> <Kbd>↓</Kbd> next</li>
+					<li><Kbd>Home</Kbd> / <Kbd>End</Kbd> first / last</li>
+				</ul>
+			</div>
+		</DemoExample>
+	</div>
+</DemoSection>

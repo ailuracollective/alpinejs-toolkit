@@ -1,0 +1,216 @@
+---
+import { countdownTimerData, countupTimerData, stopwatchTimerData } from "../../demo/timer-demo";
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("timer")!;
+
+// All four examples mount with an x-data from src/demo/timer-demo.ts. The sample
+// shows that literal x-data — what a reader would write in their own page —
+// and not the module's internals, which exist only so the reader does not have
+// to rebuild the shape of the object.
+const CLOCK = `(ms) => {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  return String(m).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
+}`;
+
+const COUNTDOWN_CODE = `<div x-data="{
+  clock: ${CLOCK},
+  timer: $timer({
+    duration: 3_600_000,
+    // Careful: formatted is ALWAYS elapsed, in both directions. A countdown
+    // formats 'remaining' itself; reading hours/minutes/seconds would make the
+    // count go UP. And the default format has no hour field: a whole hour would
+    // come out as 60:00.000, which is why this example brings its own.
+    format: ({ remaining }) => (${CLOCK})(remaining ?? 0),
+  }),
+}">
+  <strong x-text="timer.formatted"></strong>
+  <button @click="timer.toggle()">toggle()</button>
+  <button @click="timer.reset()">reset()</button>
+</div>`;
+
+const REMAINING_CODE = `<div x-data="{
+  clock: ${CLOCK},
+  timer: $timer({
+    duration: 10_000,
+    format: ({ remaining }) => (${CLOCK})(remaining ?? 0),
+  }),
+}">
+  <strong x-text="timer.formatted"></strong>
+
+  <!-- elapsed and remaining are the two live fields, and they are not the same
+       number. That distinction is what makes a countdown a countdown. -->
+  <span x-text="clock(timer.elapsed)"></span>
+  <span x-text="clock(timer.remaining ?? 0)"></span>
+
+  <!-- progress is 0→1 over 'duration'; the percentage is rounded by hand. -->
+  <div :style="\`width: \${Math.round((timer.progress ?? 0) * 100)}%\`"></div>
+
+  <button @click="timer.toggle()">toggle()</button>
+  <button @click="timer.reset()">reset()</button>
+</div>`;
+
+const COUNTUP_CODE = `<div x-data="{ counter: $timer({ mode: 'up', limit: 60_000 }) }">
+  <strong x-text="counter.formatted"></strong>
+  <button @click="counter.toggle()">toggle()</button>
+  <button @click="counter.reset()">reset()</button>
+
+  <!-- 'down' is the default mode, so mode: 'up' has to be said out loud.
+       And 'limit' is the only thing that gives it an end: without it the countup
+       never stops. progress is still 0→1, now over 'limit'. -->
+  <div :style="\`width: \${Math.round((counter.progress ?? 0) * 100)}%\`"></div>
+</div>`;
+
+// The trap: stopwatchTimerData() builds the list with onLap and NOT with
+// sw.laps. lap() records the split in the controller but emits no event, so the
+// reactive view's fields never refresh and a list bound to them stays empty
+// forever.
+const STOPWATCH_CODE = `<div x-data="{
+  laps: [],
+  sw: null,
+  init() {
+    this.sw = $timer({
+      mode: 'stopwatch',
+      // Careful: reading sw.laps and the list never fills. lap() emits no event,
+      // so the reactive view does not refresh. onLap does fire, inside lap(), and
+      // that is the real reactive entry point.
+      onLap: (lap) => this.laps.push(lap.splitFormatted),
+    });
+  },
+}">
+  <strong x-text="sw.formatted"></strong>
+  <button @click="sw.start()">start()</button>
+  <button @click="sw.lap()">lap()</button>
+  <button @click="sw.reset()">reset()</button>
+
+  <ol>
+    <template x-for="(split, i) in laps" :key="i">
+      <li x-text="'Lap ' + (i + 1) + ' — ' + split"></li>
+    </template>
+  </ol>
+</div>`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="A countdown formats the time it has left, not the time that has passed"
+		note="formatted is a breakdown of ELAPSED in both directions, so a countdown has to format remaining itself. The default format has no hour field: without one of your own, a whole hour reads 60:00.000."
+		open
+		code={COUNTDOWN_CODE}
+	>
+		<div
+			class="grid gap-4"
+			data-testid="countdown"
+			x-data={countdownTimerData(3_600_000)}
+		>
+			<p class="text-xs text-[var(--ios-label-secondary)] m-0">
+				Countdown from 1 hour, custom <code>format</code> built from
+				<code>remaining</code>
+			</p>
+			<strong class="text-2xl tabular-nums" x-text="timer.formatted"></strong>
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="timer.toggle()">
+					<span x-text="timer.running ? 'Pause' : 'Start'"></span>
+				</DemoButton>
+				<DemoButton @click="timer.reset()">Reset</DemoButton>
+			</div>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="elapsed and remaining are the two live numbers"
+		note="That is the distinction that makes a countdown a countdown: one counts down from duration and the other counts up. progress is 0→1 over duration, and it is what moves a bar."
+		open
+		code={REMAINING_CODE}
+	>
+		<div
+			class="grid gap-4"
+			data-testid="countdown-remaining"
+			x-data={countdownTimerData(10_000)}
+		>
+			<p class="text-xs text-[var(--ios-label-secondary)] m-0">
+				Countdown from 10 seconds. <code>elapsed</code> and
+				<code>remaining</code> are both live — this is the distinction that makes a
+				countdown a countdown
+			</p>
+			<strong class="text-2xl tabular-nums" x-text="timer.formatted"></strong>
+			<p class="text-xs text-[var(--ios-label-secondary)] m-0 tabular-nums">
+				elapsed <span x-text="clock(timer.elapsed)"></span> · remaining
+				<span x-text="clock(timer.remaining ?? 0)"></span>
+			</p>
+			<div class="h-1 rounded bg-[var(--ios-separator)]" role="presentation">
+				<div
+					class="h-1 rounded bg-[var(--ios-blue)] transition-[width]"
+					x-bind:style="`width: ${Math.round((timer.progress ?? 0) * 100)}%`"
+				></div>
+			</div>
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="timer.toggle()">
+					<span x-text="timer.running ? 'Pause' : 'Start'"></span>
+				</DemoButton>
+				<DemoButton @click="timer.reset()">Reset</DemoButton>
+			</div>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="A countup with an end, via limit"
+		note="'down' is the default mode, so a countup has to be named — and limit is the only thing that gives it an end. It is the same handle you are already working with, no new store."
+		open
+		code={COUNTUP_CODE}
+	>
+		<div class="grid gap-4" x-data={countupTimerData(60_000)}>
+			<p class="text-xs text-[var(--ios-label-secondary)] m-0">Countup with a 60s limit</p>
+			<strong class="text-2xl tabular-nums" x-text="counter.formatted"></strong>
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="counter.toggle()">
+					<span x-text="counter.running ? 'Pause' : 'Start'"></span>
+				</DemoButton>
+				<DemoButton @click="counter.reset()">Reset</DemoButton>
+			</div>
+			<div class="h-1 rounded bg-[var(--ios-separator)]" role="presentation">
+				<div
+					class="h-1 rounded bg-[var(--ios-blue)] transition-[width]"
+					x-bind:style="`width: ${Math.round((counter.progress ?? 0) * 100)}%`"
+				></div>
+			</div>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="A stopwatch with laps, and the list arrives through onLap"
+		note="The laps are not read from sw.laps: lap() emits no event, so the reactive view never refreshes and the list stays empty. onLap fires inside lap() and is the real reactive entry point."
+		code={STOPWATCH_CODE}
+	>
+		<div class="grid gap-4" x-data={stopwatchTimerData()} data-testid="stopwatch">
+			<p class="text-xs text-[var(--ios-label-secondary)] m-0">
+				Stopwatch — a full timer, with the laps arriving through the <code>onLap</code>
+				callback
+			</p>
+			<strong class="text-2xl tabular-nums" x-text="sw.formatted"></strong>
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="sw.start()">Start</DemoButton>
+				<DemoButton @click="sw.lap()">Lap</DemoButton>
+				<DemoButton @click="sw.reset()">Reset</DemoButton>
+			</div>
+			<ol class="text-xs text-[var(--ios-label-secondary)] tabular-nums m-0 pl-5">
+				<template x-for="(split, i) in laps" :key="i">
+					<li x-text="'Lap ' + (i + 1) + ' — ' + split"></li>
+				</template>
+			</ol>
+		</div>
+	</DemoExample>
+
+	<p class="text-xs text-[var(--ios-label-secondary)] mt-1">
+		<strong>Read <code>formatted</code> as "elapsed".</strong> The default
+		<code>formatted</code> string and the <code>hours</code>/<code>minutes</code>/<code>seconds</code>
+		handed to a custom <code>format</code> are all a breakdown of elapsed time, in both directions.
+		A countdown is <code>format: (&#123; remaining &#125;) => …</code> — as the two widgets
+		above do. (The braces are escaped because Astro evaluates a literal
+		<code>&#123;</code> in text as an expression.)
+	</p>
+</DemoSection>

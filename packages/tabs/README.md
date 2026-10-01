@@ -1,0 +1,340 @@
+# @ailura/alpinejs-tabs
+
+<p align="center">
+
+[![bundlephobia minzip](https://badgen.net/bundlephobia/minzip/@ailura/alpinejs-tabs)](https://bundlephobia.com/package/@ailura/alpinejs-tabs)
+
+</p>
+
+> Headless accessible tabs for Alpine.js — `horizontal`/`vertical` orientation, roving tabindex, arrow-key navigation and the full ARIA tab wiring, built on `@ailura/alpinejs-core`. The controller is framework-agnostic; the plugin exposes it as `$store.tabs` and `$tabs`.
+
+## Installation
+
+```sh
+pnpm add @ailura/alpinejs-tabs alpinejs
+# or
+npm install @ailura/alpinejs-tabs alpinejs
+```
+
+Requires `alpinejs@^3.0.0` as peer. `@ailura/alpinejs-core` is a **peer
+dependency**, not a dependency: no package in this toolkit has a
+`dependencies` block, so the host installs it too.
+
+## Usage
+
+### 1. Standalone (framework-agnostic)
+
+```ts
+import { createTabsController } from "@ailura/alpinejs-tabs";
+
+const ctrl = createTabsController(); // mounted; every mutator is live
+ctrl.create("settings", { defaultTab: "profile", orientation: "horizontal" });
+ctrl.createItem("settings", "profile");
+ctrl.createItem("settings", "billing");
+ctrl.select("settings", "billing");
+ctrl.active("settings"); // 'billing'
+ctrl.isActive("settings", "billing"); // true
+
+ctrl.on("change", (detail) => {
+  detail.instanceId; // 'settings'
+  detail.activeTabId; // 'billing' | null
+  detail.source; // 'user' | 'initialization'
+});
+
+// ctrl.destroy() when done — every mutator after it is a silent no-op
+```
+
+### 2. Alpine
+
+```ts
+import Alpine from "alpinejs";
+import tabsPlugin from "@ailura/alpinejs-tabs";
+
+Alpine.plugin(tabsPlugin());
+Alpine.start();
+```
+
+```html
+<div
+  x-data="{ tabs: ['profile', 'billing', 'security'] }"
+  x-init="(() => {
+    $store.tabs.create('settings', { defaultTab: 'profile' });
+    tabs.forEach(id => $store.tabs.createItem('settings', id));
+  })()"
+>
+  <!-- role/aria-orientation are fixed for the element's life, so one x-bind is safe -->
+  <div
+    x-bind="$store.tabs.tablistProps('settings')"
+    @keydown="$store.tabs.handleKeydown('settings', $event)"
+  >
+    <template x-for="id in tabs" :key="id">
+      <!-- x-bind covers role/id/aria-controls, which never change. Alpine applies
+           an object-form x-bind EXACTLY ONCE, so aria-selected and the roving
+           tabindex need their own attribute or they freeze at their init value. -->
+      <button
+        type="button"
+        x-bind="$store.tabs.tabProps('settings', id)"
+        :aria-selected="$store.tabs.isActive('settings', id)"
+        :tabindex="$store.tabs.isActive('settings', id) ? 0 : -1"
+        @click="$store.tabs.select('settings', id)"
+        x-text="id"
+      ></button>
+    </template>
+  </div>
+
+  <template x-for="id in tabs" :key="id">
+    <div
+      x-bind="$store.tabs.panelProps('settings', id)"
+      :hidden="!$store.tabs.isActive('settings', id)"
+      x-text="id"
+    ></div>
+  </template>
+</div>
+```
+
+The plugin registers `$store.tabs`, the `$tabs` magic (the same object) and
+**no directive** — there is no `x-tabs:trigger` or `x-tabs:panel`.
+
+## API
+
+### Exports
+
+| Export                          | Description                                                                                                                                          | Type       |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `TabsController`                | Framework-agnostic controller class — owns tab-list state, emits `change`                                                                            | `class`    |
+| `createTabsController`          | Factory — `createTabsController({ id? }) => TabsController`; mounts it                                                                               | `function` |
+| `createTabsStore`               | A mounted controller's store projection, without a plugin — `createTabsStore({ id? }) => TabsStore`. Not reactive (see [Limitations](#limitations)). | `function` |
+| `createTabsStoreFromController` | Wraps an existing controller in a `TabsStore` and subscribes it to that controller                                                                   | `function` |
+| `tabsPlugin`                    | `Alpine.plugin()` factory — `tabsPlugin({ id?, storeKey?, magicKey? }) => PluginCallback`                                                            | `function` |
+| `DEFAULT_TABS_STORE_KEY`        | Default `$store` key — `"tabs"`                                                                                                                      | `string`   |
+| `DEFAULT_TABS_MAGIC_KEY`        | Default `$tabs` magic key — `"tabs"`                                                                                                                 | `string`   |
+| `TabsControllerOptions`         | `{ id? }` — controller id, generated by `generateId('tabs')` when absent                                                                             | `type`     |
+| `CreateTabsOptions`             | Plugin options — `{ id?, storeKey?, magicKey? }`                                                                                                     | `type`     |
+| `TabsOptions`                   | Per-tab-list options — `{ orientation?, defaultTab?, onChange? }`                                                                                    | `type`     |
+| `TabsOrientation`               | `'horizontal' \| 'vertical'`                                                                                                                         | `type`     |
+| `TabItem`                       | A registered tab — `{ id, disabled }`                                                                                                                | `type`     |
+| `TabsInstance`                  | One tab list's projected state — `{ activeTabId, orientation, items, onChange? }`                                                                    | `type`     |
+| `TabsChangeSource`              | Discriminator — `'user' \| 'initialization'`                                                                                                         | `type`     |
+| `TabsChangeDetail`              | `change` payload — `{ instanceId, activeTabId, source }`                                                                                             | `type`     |
+| `TabsStore`                     | The Alpine-facing surface, i.e. everything reachable as `$store.tabs.*` / `$tabs.*`                                                                  | `type`     |
+| `TabsAlpine`                    | Typed view of the `Alpine` instance the plugin uses                                                                                                  | `type`     |
+| `TabsPluginCallback`            | `Alpine.plugin()` callback signature — `(alpine: Alpine) => void`                                                                                    | `type`     |
+| `TabsEvents`                    | Event map for `controller.on('change', …)` — one key, one payload                                                                                    | `type`     |
+
+`TabsController` also exposes `hasInstance(groupId)` and `snapshotInstances()`
+for adapter sync; neither is on the store.
+
+### Store API
+
+```ts
+// Lifecycle — `createItem` is the only one that does not need `create` first
+$store.tabs.create("settings", { orientation: "vertical", defaultTab: "profile" });
+$store.tabs.createItem("settings", "profile");
+$store.tabs.createItem("settings", "billing", true); // disabled
+$store.tabs.destroyItem("settings", "billing");
+$store.tabs.destroy("settings"); // one tab list
+$store.tabs.destroy(); // the whole controller
+$store.tabs.destroyAll(); // every tab list, controller still usable
+
+// Selection — silent no-op on an unknown list, unknown tab or disabled tab
+$store.tabs.select("settings", "billing");
+$store.tabs.active("settings"); // 'billing' | null
+$store.tabs.isActive("settings", "billing"); // boolean
+$store.tabs.next("settings"); // wraps, skips disabled
+$store.tabs.previous("settings");
+
+// Keyboard
+$store.tabs.handleKeydown("settings", $event);
+
+// ARIA helpers
+$store.tabs.tablistProps("settings");
+// → { role: 'tablist', 'aria-orientation': 'horizontal' | 'vertical' }
+$store.tabs.tabProps("settings", "profile");
+// → { role: 'tab', id: 'settings-tab-profile', 'aria-selected', 'aria-controls', tabindex }
+$store.tabs.panelProps("settings", "profile");
+// → { role: 'tabpanel', id: 'settings-panel-profile', 'aria-labelledby', hidden }
+```
+
+| Method                             | Description                                                                                                                                                                                                      |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create(id, options?)`             | Creates a tab list. Re-creating an id **replaces** it, orientation and active tab included. Emits `change` with `source: 'initialization'`.                                                                      |
+| `createItem(id, tabId, disabled?)` | Registers a tab, **creating the list if it does not exist**. The first enabled tab registered into a list with no active tab becomes the active one.                                                             |
+| `destroyItem(id, tabId)`           | Removes the tab. If it was the active one, selection moves to the next non-disabled tab, or `null` when none is left.                                                                                            |
+| `destroy(id)`                      | Drops one tab list and emits `change` for it.                                                                                                                                                                    |
+| `destroy()`                        | Drops every tab list **and** tears down the controller — later mutations are silent no-ops. Prefer `destroyAll()`.                                                                                               |
+| `destroyAll()`                     | Drops every tab list, controller still usable.                                                                                                                                                                   |
+| `select(id, tabId)`                | Selects a tab. No-op for an unknown list, an unknown tab, a disabled tab, or a re-selection (the early return also skips the `change` emit and `onChange`).                                                      |
+| `active(id)`                       | The selected tab id, `null` when the list is unregistered or has no selection.                                                                                                                                   |
+| `isActive(id, tabId)`              | `false` for anything unregistered.                                                                                                                                                                               |
+| `next(id)` / `previous(id)`        | One enabled tab along, wrapping. No-op for an unknown list or a list with no enabled tabs.                                                                                                                       |
+| `handleKeydown(id, event)`         | `ArrowRight`/`ArrowLeft` on a **horizontal** list, `ArrowDown`/`ArrowUp` on a **vertical** one, `Home`/`End` in both. The mismatched pair is left to the page. Moves `activeTabId` only — never calls `focus()`. |
+| `tablistProps(id)`                 | Fixed for the element's life, so it is the one helper safe to spread into a single `x-bind`.                                                                                                                     |
+| `tabProps(id, tabId)`              | `aria-selected` and `tabindex` change — see [Limitations](#limitations).                                                                                                                                         |
+| `panelProps(id, tabId)`            | `hidden` changes — see [Limitations](#limitations).                                                                                                                                                              |
+| `instances`                        | `Record<groupId, TabsInstance>` — the read-model, reactive.                                                                                                                                                      |
+
+### Options
+
+Plugin-level:
+
+```ts
+interface CreateTabsOptions {
+  id?: string; // controller id — defaults to generateId('tabs')
+  storeKey?: string; // $store key — default DEFAULT_TABS_STORE_KEY ("tabs")
+  magicKey?: string; // $tabs magic key — default DEFAULT_TABS_MAGIC_KEY ("tabs")
+}
+```
+
+Per-tab-list, passed to `create()`:
+
+```ts
+type TabsOptions = {
+  orientation?: "horizontal" | "vertical"; // default 'horizontal'
+  defaultTab?: string; // no default — validated by nothing
+  onChange?: (tabId: string) => void; // no default
+};
+```
+
+| Option        | Default        | Effect                                                                                                                                                                                                                                                                                        |
+| ------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `orientation` | `'horizontal'` | Decides which arrow pair `handleKeydown()` acts on, and is emitted as `aria-orientation` by `tablistProps()`.                                                                                                                                                                                 |
+| `defaultTab`  | —              | Taken verbatim, **not validated**: nothing checks the id was registered, so an id that never reaches `createItem()` leaves the list unselected.                                                                                                                                               |
+| `onChange`    | —              | Called with the new tab id from `select()` — which is what `next()`, `previous()` and `handleKeydown()` go through, so arrow keys fire it too — and from `createItem()` when the first enabled tab becomes active. Never from `create`, `destroy`, `destroyItem` or `create` re-registration. |
+| `id`          | generated      | Controller id. Purely an identifier; nothing reads it after construction.                                                                                                                                                                                                                     |
+| `storeKey`    | `'tabs'`       | `$store` key. Renaming it renames `magicKey` too unless `magicKey` is given explicitly.                                                                                                                                                                                                       |
+| `magicKey`    | `'tabs'`       | `$tabs` magic key. There is **no** way to register the store without the magic — `resolvePluginKeys` treats any non-`undefined` value as a name.                                                                                                                                              |
+
+### Avoiding name collisions
+
+```ts
+Alpine.plugin(tabsPlugin({ storeKey: "wizard" })); // → $store.wizard and $wizard
+```
+
+`storeKey` is the only name you need: `resolvePluginKeys` makes `magicKey` fall
+back to `storeKey` before it falls back to the package default, so one option
+moves both surfaces. The exported constants `DEFAULT_TABS_STORE_KEY` and
+`DEFAULT_TABS_MAGIC_KEY` keep the defaults discoverable from TypeScript.
+
+### Events
+
+```ts
+import type { TabsChangeDetail } from "@ailura/alpinejs-tabs";
+
+ctrl.on("change", (detail: TabsChangeDetail) => {
+  detail.instanceId; // the tab list id
+  detail.activeTabId; // 'billing' | null — null once the list is being torn down
+  detail.source; // 'user' | 'initialization'
+});
+```
+
+One event, one payload. `source: 'user'` covers `select`, `createItem`,
+`destroyItem`, and the `next`/`previous`/`handleKeydown` movement that ends in a
+`select`. `source: 'initialization'` covers `create`, `destroy(id)` and
+`destroyAll()`.
+
+## Roving tabindex: bind the changing attributes on their own
+
+Alpine applies an **object-form `x-bind` exactly once**. That makes
+`tabProps()` and `panelProps()` half-reactive as written: `role`, `id`,
+`aria-controls` and `aria-labelledby` are fixed for the element's life and are
+safe in the object, but `aria-selected`, `tabindex` and `hidden` change with
+selection and would freeze at their init values. Split them:
+
+```html
+<!-- invariant → the helper -->
+<button x-bind="$store.tabs.tabProps('settings', id)" …>…</button>
+
+<!-- changing → its own attribute -->
+:aria-selected="$store.tabs.isActive('settings', id)" :tabindex="$store.tabs.isActive('settings',
+id) ? 0 : -1" :hidden="!$store.tabs.isActive('settings', id)"
+```
+
+`tablistProps()` is the exception that proves the rule: `role` and
+`aria-orientation` never change, so the whole object goes through one `x-bind`.
+
+## SSR
+
+> State is in-memory and nothing reads `window` or `document` at import time,
+> so the package is safe to import during SSR. All panels ship hidden only if
+> your markup binds `:hidden`; a server-rendered page has no selection until
+> the client registers the tabs, so drive it with `defaultTab` and bind
+> visibility on the client.
+
+## Accessibility
+
+- Tab list, via `tablistProps()`: `role="tablist"`, `aria-orientation`
+- Tabs, via `tabProps()`: `role="tab"`, `id`, `aria-selected`, `aria-controls`,
+  `tabindex` (roving)
+- Panels, via `panelProps()`: `role="tabpanel"`, `id`, `aria-labelledby`,
+  `hidden`
+- Keyboard, via `handleKeydown()`: `ArrowRight`/`ArrowLeft` move on a
+  horizontal list, `ArrowDown`/`ArrowUp` on a vertical one, `Home`/`End` jump
+  to the first/last enabled tab. Movement wraps and skips disabled tabs. The
+  pair that does not match the orientation is left to the page, so a horizontal
+  list does not swallow `ArrowDown` from a scrollable panel
+- Focus: **managed indirectly.** `handleKeydown()` moves `activeTabId` and
+  `tabProps()` turns that into a `tabindex="0"` on exactly one tab, but nothing
+  calls `focus()`. Put `@keydown` on the tablist so the browser follows the new
+  `tabindex` as the user arrows across
+- Reference: [WAI-ARIA Authoring Practices — Tabs pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/)
+
+## Integration
+
+- **@ailura/alpinejs-accordion** — the same roving-tabindex and
+  object-`x-bind` rules apply, and the two compose: a tabs group nested in an
+  accordion panel needs `@keydown` on each, not on a shared ancestor
+
+## Limitations
+
+- **`plugin.ts` re-implements five of the controller's own methods.**
+  `active`, `isActive`, `tabProps`, `panelProps` and `tablistProps` are written
+  a second time in `packages/tabs/src/plugin.ts`, overriding the versions
+  `TabsController.toStore()` produced, so they read the reactive
+  `store.instances` instead of the controller's private registry. The override
+  is **necessary** — a read of the private registry registers no dependency
+  inside an Alpine effect, so the originals would never re-run — but the bodies
+  are duplicated, not shared. Changing an attribute name in the controller has
+  to be made in the plugin too. `accordion` and `menu` put the same projection
+  in their store factory instead; `tabs` does not.
+- **`createTabsStore()` is not reactive.** It goes through
+  `createTabsStoreFromController()`, which does not apply the five overrides
+  above, so its derived reads close over the controller. `store.instances` is
+  kept in sync, but `active()`/`tabProps()` will not re-run inside an Alpine
+  effect. Register `tabsPlugin()` for anything bound in a template.
+- **`tabProps().aria-selected` / `.tabindex` and `panelProps().hidden` do not
+  update under object-form `x-bind`** — see
+  [Roving tabindex](#roving-tabindex-bind-the-changing-attributes-on-their-own).
+- **`defaultTab` is not validated.** An id that is never passed to
+  `createItem()` leaves the list with no active tab, and the roving tabindex
+  nowhere.
+- **No `Enter`/`Space` activation and no automatic activation.** `handleKeydown()`
+  has no key that selects a tab; selection happens on click or through
+  `select()`. The APG's "automatic activation" and "manual activation" modes
+  are both left to the caller.
+- **No focus movement.** No `focus()` call anywhere in the package.
+- **`select()` on the already-active tab emits nothing** — the early return
+  covers the emit and `onChange`, so `onChange` is not a "selection settled"
+  signal.
+- **No directive.** There is no `x-tabs:trigger` or `x-tabs:panel`; a tab and a
+  panel are a store call plus your own element.
+
+## Size
+
+`5.16 kB raw / 1.65 kB gzip` · budget `2.5 kB` · externalized peers: `alpinejs`, `@ailura/alpinejs-core` · `size-limit` + `publint` + `attw` verified.
+
+## Architecture
+
+[Features layer](../../ARCHITECTURE.md) — controllers own state, Alpine owns reactivity. See canon, guards, and SSR rules in [ARCHITECTURE.md](../../ARCHITECTURE.md).
+
+## Testing
+
+```sh
+pnpm test              # vp test (happy-dom)
+pnpm run typecheck     # tsc --noEmit
+```
+
+Uses `@ailura/alpinejs-testing` — `html`/`mount`/`settled`/`start`/`resume`/`reset`. See [ARCHITECTURE.md §8](../../ARCHITECTURE.md).
+
+## License
+
+MIT

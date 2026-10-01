@@ -1,0 +1,8 @@
+# Astro docs app (Starlight)
+.astro/
+dist/
+.vercel/
+.output/
+node_modules/
+*.log
+.DS_Store

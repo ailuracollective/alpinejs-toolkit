@@ -1,0 +1,153 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("query-adapter-alpine")!;
+
+// The markup that mounts the example below, plus the wiring the box needs. The
+// sample shows the `adapter` option because it is the whole point of the
+// package's reactive half: the store registered by `alpineStoreQueryPlugin()`
+// holds no box at all, because that plugin builds its controller without an
+// adapter.
+const SNAPSHOT_CODE = `<!-- src/demo/query-alpine-demo.ts -->
+const adapter = createAlpineStoreAdapter(Alpine);
+
+// ── src/alpine-boot.ts ────────────────────────────────────────────────
+// The package's own plugin cannot produce the box: createQueryPlugin() builds
+// its controller with no adapter and never sees the Alpine instance. The box
+// comes from query's plugin, under its own key.
+alpine.plugin(
+  queryPlugin({ storeKey: "queryAlpine", adapter: createAlpineDemoAdapter(alpine) })
+);
+
+// The page: the component is handed the box and reads it straight through.
+// There is no subscribe() to call and no unsubscribe to leak — there is no
+// subscribe at all. Each binding below reads the box through Alpine's own
+// graph, so the cache publishing is what repaints these cells.
+<div x-data="queryAlpineDemo" data-testid="query-alpine-snapshot">
+  <DemoButton @click="load()">observe()</DemoButton>
+
+  phase: <strong x-text="snapshot.phase"></strong>
+  entries: <strong x-text="snapshot.entries.length"></strong>
+
+  <template x-for="row in snapshot.entries" :key="row.keyHash">
+    <tr>
+      <td x-text="row.keyHash"></td>
+      <td x-text="row.status"></td>
+      <td x-text="titlesOf(row)"></td>
+    </tr>
+  </template>
+</div>`;
+
+const BOX_CODE = `// A second box from the same factory, with no cache and no store behind
+// it. createAlpineStoreAdapter(Alpine) is a general one-value reactive box:
+// get() reads, set() writes, and anything bound to the box re-renders.
+const counterBox = createAlpineStoreAdapter(Alpine).create({ count: 0 });
+
+<div x-data="queryAlpineDemo">
+  <DemoButton @click="bump()">set({ count: current + 1 })</DemoButton>
+  <DemoButton variant="ghost" @click="releaseCounter()">destroy()</DemoButton>
+
+  <span>count: <strong x-text="counter ?? 'released'"></strong></span>
+</div>
+
+// The trap: destroy() is final. It empties the box and drops the adapter's
+// reference to it, so get() reports undefined and set() is inert from here
+// on — hence the ?? above rather than counterBox.get().count.
+bump() {
+  const current = this.counterBox.get()?.count ?? 0;
+  this.counterBox.set({ count: current + 1 });
+}`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="Every publish lands in an Alpine.reactive box, and the table is the box"
+		note="This is the only adapter of the three a template can bind to. Nothing here subscribes: every cell below reads box.get() inside an Alpine binding, and Alpine's own graph is what repaints them when the cache publishes. Compare the zustand and nanostores pages, which each need a subscribe(), an unsubscribe and a copy of the snapshot kept in step by hand."
+		open
+		code={SNAPSHOT_CODE}
+	>
+		<div x-data="queryAlpineDemo" class="space-y-4" data-testid="query-alpine-snapshot">
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="load()">observe()</DemoButton>
+				<DemoButton @click="addTitle()">mutate()</DemoButton>
+				<DemoButton variant="ghost" @click="forget()">remove()</DemoButton>
+			</div>
+
+			<div class="flex flex-wrap items-center gap-3 text-xs text-[var(--ios-label-secondary)]">
+				<span>phase: <strong x-text="snapshot.phase"></strong></span>
+				<span>entries: <strong x-text="snapshot.entries.length"></strong></span>
+				<span>mutations: <strong x-text="snapshot.mutations.length"></strong></span>
+			</div>
+
+			<div class="overflow-hidden rounded-lg border border-[var(--ios-separator)]">
+				<table class="w-full text-left text-sm">
+					<thead class="bg-[var(--ios-fill-quaternary)] text-[10px] tracking-wider text-[var(--ios-label-tertiary)] uppercase">
+						<tr class="border-b border-[var(--ios-separator)]">
+							<th scope="col" class="h-9 px-3 font-semibold">Entry</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Status</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Fetching</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Stale</th>
+							<th scope="col" class="h-9 px-3 text-right font-semibold">Cached titles</th>
+						</tr>
+					</thead>
+					<tbody>
+						<template x-for="row in snapshot.entries" :key="row.keyHash">
+							<tr class="border-b border-[var(--ios-separator)] last:border-0">
+								<td class="p-2.5 font-mono text-xs" x-text="row.keyHash"></td>
+								<td class="p-2.5" x-text="row.status"></td>
+								<td class="p-2.5" x-text="row.fetchStatus"></td>
+								<td class="p-2.5" x-text="row.isStale"></td>
+								<td class="p-2.5 text-right" x-text="titlesOf(row)"></td>
+							</tr>
+						</template>
+					</tbody>
+				</table>
+			</div>
+
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				Press <code class="font-mono">observe()</code> and every cell above changes on its own.
+				The component holds no copy of the snapshot to update: it exposes
+				<code class="font-mono">snapshot</code> as a getter over
+				<code class="font-mono">box.get()</code>, so there is nothing that can fall out of step.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="The same factory is a one-value reactive box on its own"
+		note="Nothing here is a cache: createAlpineStoreAdapter(Alpine) returns a general one-value box, and a binding on it re-renders on set() because the box is Alpine's own graph. The handle is get/set/destroy and nothing else — which is also this adapter's limit."
+		code={BOX_CODE}
+	>
+		<div x-data="queryAlpineDemo" class="space-y-3" data-testid="query-alpine-box">
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="bump()">set(&#123; count: current + 1 &#125;)</DemoButton>
+				<DemoButton variant="ghost" @click="releaseCounter()">destroy()</DemoButton>
+			</div>
+
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				count: <strong class="text-[var(--ios-label)]" x-text="counter ?? 'released'"></strong>
+			</p>
+
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				<code class="font-mono">destroy()</code> is final: it empties the box, so
+				<code class="font-mono">get()</code> reports
+				<code class="font-mono">undefined</code> and
+				<code class="font-mono">set()</code> is inert afterwards. That is why the binding above
+				has a fallback and reads
+				<code class="font-mono">counterBox.get()?.count</code> rather than
+				<code class="font-mono">.count</code> straight off the box.
+			</p>
+		</div>
+	</DemoExample>
+
+	<p class="text-xs text-[var(--ios-label-secondary)]">
+		Runs on <code>@ailura/alpinejs-query-adapter-alpine</code> with a fake fetcher, registered
+		under its own <code>$store</code> key so the package's own registration keeps
+		<code>"query"</code>. The trade, stated plainly: because the box <em>is</em> Alpine's graph,
+		nothing outside Alpine can subscribe to it, so reach for the zustand or nanostores adapter
+		when a devtools panel, a persistence layer or a test has to watch what the cache publishes.
+	</p>
+</DemoSection>

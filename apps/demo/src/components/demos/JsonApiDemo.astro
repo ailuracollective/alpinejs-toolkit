@@ -1,0 +1,203 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("json-api")!;
+
+const EVENTS_CODE = `<div x-data="jsonApiDemo">
+  <button @click="loadList()">findAll()</button>
+  <button @click="createArticle()">create()</button>
+</div>
+
+// The client is a BaseController: it emits per request. These three are wired
+// once, in the component's init(), and on() hands back the unsubscribe for each.
+//
+// The demo never calls them: the client is a module-level singleton that outlives
+// every page swap, so there is nothing to tear down per component.
+jsonApiClient.on("request",  (d) => this.log("request",  \`\${d.method} \${d.url}\`));
+jsonApiClient.on("response", (d) => this.log("response", \`\${d.status} \${d.method}\`));
+jsonApiClient.on("error",    (d) => this.log("error",    \`status \${d.status}\`));`;
+
+const CALLS_CODE = `const doc = await jsonApiClient.findAll("articles", {
+  include: ["author"],      // asks for the related records in included[]
+  sort: ["-title"],         // a leading "-" is descending
+});
+// doc.data     → the resources
+// doc.included → the included ones, for resolving relationships by hand
+
+await jsonApiClient.findOne("articles", id, { include: ["author"] });
+
+// Careful: create() and update() take a { attributes } payload, NOT the attributes
+// themselves — the schema types what is inside, so a misspelled attribute is a
+// compile error rather than a 422 from the server.
+await jsonApiClient.create("articles", { attributes: { title, body } });
+await jsonApiClient.update("articles", id, { attributes: { title } });
+await jsonApiClient.delete("articles", id);
+
+// It takes a custom 'fetcher', so this demo's mock is
+// just a function:
+jsonApiPlugin({
+  schema,
+  baseUrl: "/json-api",
+  fetcher: (url, init) => mockFetch(url, init),
+})`;
+
+const RELATIONSHIP_CODE = `// findOne() returns the document EXACTLY AS IT ARRIVES: the client does
+// not splice included[] into relationships. Resolve it by hand — this is
+// relatedName() from src/demo/json-api-demo.ts, verbatim.
+function relatedName(relationship: unknown, included: unknown): string {
+  const data = (relationship as { data?: { id?: string } | null } | undefined)?.data;
+  const id = data && !Array.isArray(data) ? data.id : undefined;
+  if (!id || !Array.isArray(included)) {
+    return "Unknown";
+  }
+
+  const match = included.find((item) => (item as { id?: string }).id === id) as
+    | { attributes?: Record<string, unknown> }
+    | undefined;
+  const name = match?.attributes?.name;
+
+  return typeof name === "string" ? name : "Unknown";
+}`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-sm text-[var(--ios-label-secondary)] text-pretty">
+		A <strong>JSON:API</strong> client with resource names typed from your schema. What is
+		interesting is not the call: it is that <code>findAll("articles")</code> does not take an
+		arbitrary string — the type comes from the schema, so renaming a resource breaks the
+		compilation of your calls rather than failing at runtime.
+	</p>
+
+	<DemoExample
+		title="CRUD against an in-memory mock"
+		note="create / rename / delete hit a fake JSON:API through a custom fetcher. Run them in any order: the log below records every request."
+		open
+		code={CALLS_CODE}
+	>
+		<div x-data="jsonApiDemo" class="space-y-4" data-testid="jsonapi-articles">
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="toggleSort()">Sort: <span x-text="sort"></span></DemoButton>
+				<DemoButton @click="createArticle()">create()</DemoButton>
+				<DemoButton x-show="selectedId" x-cloak @click="renameSelected()">rename()</DemoButton>
+				<DemoButton variant="destructive" x-show="selectedId" x-cloak @click="deleteSelected()">
+					delete()
+				</DemoButton>
+				<DemoButton variant="ghost" x-show="selectedId" x-cloak @click="clearDetail()">
+					Clear detail
+				</DemoButton>
+			</div>
+
+			<p
+				class="text-sm text-[var(--ios-label-secondary)]"
+				x-show="loading"
+				x-cloak
+				aria-live="polite"
+			>
+				Loading articles…
+			</p>
+			<p class="text-sm text-[var(--ios-red)]" x-show="error" x-cloak x-text="error" role="alert"></p>
+
+			<div class="w-full overflow-x-auto rounded-lg ring-1 ring-[var(--ios-separator)]">
+				<table class="w-full text-left text-sm">
+					<thead class="text-[10px] tracking-wider text-[var(--ios-label-tertiary)] uppercase">
+						<tr class="border-b border-[var(--ios-separator)]">
+							<th scope="col" class="h-9 px-3 font-semibold">ID</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Title</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Author</th>
+						</tr>
+					</thead>
+					<tbody>
+						<template x-for="row in rows" :key="row.id">
+							<tr
+								class="cursor-pointer border-b border-[var(--ios-separator)] transition-colors last:border-0 hover:bg-[var(--ios-fill-quaternary)]/50"
+								:class="selectedId === row.id ? 'bg-[var(--ios-blue)]/10' : ''"
+								@click="selectArticle(row.id)"
+							>
+								<td class="p-2.5 tabular-nums" x-text="row.id"></td>
+								<td class="max-w-xs truncate p-2.5" x-text="row.title"></td>
+								<td class="p-2.5" x-text="row.author"></td>
+							</tr>
+						</template>
+					</tbody>
+				</table>
+			</div>
+
+			<div class="rounded-lg border border-[var(--ios-separator)] p-3 text-sm" x-show="detail" x-cloak>
+				<p class="mb-1 font-medium">
+					<code>findOne("articles", "<span x-text="selectedId"></span>")</code>
+				</p>
+				<p x-show="detailLoading" x-cloak class="text-[var(--ios-label-secondary)]">Loading article…</p>
+				<template x-if="detail">
+					<dl class="space-y-1">
+						<div class="flex gap-2">
+							<dt class="shrink-0 text-[var(--ios-label-secondary)]">Title</dt>
+							<dd class="font-medium" x-text="detail?.title"></dd>
+						</div>
+						<div class="flex gap-2">
+							<dt class="shrink-0 text-[var(--ios-label-secondary)]">Body</dt>
+							<dd x-text="detail?.body"></dd>
+						</div>
+						<div class="flex gap-2">
+							<dt class="shrink-0 text-[var(--ios-label-secondary)]">Author</dt>
+							<dd>
+								resolved from <code>included[]</code> —
+								<strong x-text="detail?.author"></strong>
+							</dd>
+						</div>
+					</dl>
+				</template>
+			</div>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="The request / response / error events"
+		note="This is the most useful part of the package, and it used to be invisible: a network log that is yours, without monkey-patching fetch. Run any of the operations above and watch it."
+		code={EVENTS_CODE}
+	>
+		<div x-data="jsonApiDemo" class="space-y-2">
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="loadList()">findAll()</DemoButton>
+				<DemoButton @click="createArticle()">create()</DemoButton>
+			</div>
+			<ul class="space-y-1 font-mono text-xs">
+				<template x-for="entry in events" :key="entry.id">
+					<li class="rounded bg-[var(--ios-fill-quaternary)] px-2 py-1">
+						<span
+							class="font-semibold"
+							:class="{
+								'text-[var(--ios-blue)]': entry.kind === 'request',
+								'text-green-600 dark:text-green-400': entry.kind === 'response',
+								'text-[var(--ios-red)]': entry.kind === 'error',
+							}"
+							x-text="entry.kind"
+						></span>
+						<span class="text-[var(--ios-label-secondary)]" x-text="entry.message"></span>
+					</li>
+				</template>
+			</ul>
+			<p class="text-xs text-[var(--ios-label-tertiary)]" x-show="events.length === 0" x-cloak>
+				Press a button to see the requests.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Relationships do not come resolved"
+		note="A detail that surprises people: include: ['author'] puts the related records in doc.included, but does not splice them into relationships. The client returns the document as it came — resolving them is up to you."
+		code={RELATIONSHIP_CODE}
+	>
+		<p class="text-xs text-[var(--ios-label-secondary)]">
+			The <strong>Author</strong> column in the table above is built with that function, not by
+			reading an <code>author.name</code> that never arrives.
+		</p>
+	</DemoExample>
+
+	<p class="text-xs text-[var(--ios-label-secondary)]">
+		Click a row for <code>findOne</code>; create / rename / delete hit an in-memory
+		JSON:API mock through a custom <code>fetcher</code>.
+	</p>
+</DemoSection>

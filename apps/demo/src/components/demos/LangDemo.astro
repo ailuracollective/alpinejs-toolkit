@@ -1,0 +1,135 @@
+---
+import { segmentButtonActiveClass } from "../../lib/button-styles";
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("lang")!;
+
+const langBtnActive = segmentButtonActiveClass;
+
+// The real reads and the real calls of the state example.
+const STATE_CODE = `<ul>
+  <li>current:    <strong x-text="$store.lang.current"></strong></li>
+  <li>base:       <strong x-text="$store.lang.base"></strong></li>
+  <li>region:     <strong x-text="$store.lang.region ?? 'null'"></strong></li>
+  <li>fallback:   <strong x-text="$store.lang.fallback"></strong></li>
+  <li>isDetected: <strong x-text="$store.lang.isDetected"></strong></li>
+  <li>languages:  <strong x-text="$store.lang.languages.join(', ') || '—'"></strong></li>
+</ul>
+
+// \`languages\` is navigator.languages — what the reader *can* read, read once at
+// mount. \`current\`/\`base\`/\`region\` are what the app is *set* to, and set()
+// rewrites only those three. Pick Español below and \`languages\` does not move.
+$store.lang.set('pt-BR');
+$store.lang.set('es');   // a no-op while 'es' is already current: no change event
+$store.lang.reset();     // back to whatever detection found`;
+
+// The real x-show calls of the dictionary example.
+const DICTIONARY_CODE = `// One branch per language you actually ship. is() is a base match, so this
+// fires for 'pt-BR' too — you do not need a branch per region.
+<p x-show="$store.lang.is('es')" x-cloak>Hola mundo</p>
+<p x-show="$store.lang.is('en')" x-cloak>Hello world</p>
+<p x-show="$store.lang.is('fr')" x-cloak>Bonjour le monde</p>
+<p x-show="$store.lang.is('pt')" x-cloak>Olá mundo</p>
+<p x-show="!$store.lang.is('es') && !$store.lang.is('en')
+          && !$store.lang.is('fr') && !$store.lang.is('pt')" x-cloak>
+  No translation for <span x-text="$store.lang.current"></span>
+</p>`;
+
+// The real queries of the predicate example.
+const QUERY_CODE = `// is() asks "is this the current tag?". A candidate carrying its own region
+// never matches by base: with current = 'es', is('es-EC') is false. Only a
+// region-less candidate matches the base, so is('pt') is true for 'pt-BR'.
+$store.lang.is('es')       // true while current is 'es' or 'es-EC'
+$store.lang.is('es-EC')    // false while current is 'es'
+
+// includes() asks "is this among the languages the browser reported?". It reads
+// navigator.languages and set() never touches it, so it does not follow the
+// buttons above — it answers about the reader, not about the app.
+$store.lang.includes('es')
+$store.lang.includes('fr')`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="The store tracks the tag; it never translates anything"
+		note="Everything here is one reactive read of the current language — there is no per-key subscription and no watcher, so a template binding is enough. Reach for this to decide what to render and let your own i18n library supply the strings."
+		open
+		code={STATE_CODE}
+	>
+		<ul class="list-disc list-inside space-y-1 text-sm" data-testid="lang-state">
+			<li>current: <strong x-text="$store.lang.current"></strong></li>
+			<li>base: <strong x-text="$store.lang.base"></strong></li>
+			<li>region: <strong x-text="$store.lang.region ?? 'null'"></strong></li>
+			<li>fallback: <strong x-text="$store.lang.fallback"></strong></li>
+			<li>isDetected: <strong x-text="$store.lang.isDetected"></strong></li>
+			<li>
+				languages:
+				<strong x-text="$store.lang.languages.join(', ') || '—'"></strong>
+			</li>
+		</ul>
+
+		<div class="flex flex-wrap gap-2 mt-3">
+			<DemoButton class={langBtnActive} x-bind:data-active="$store.lang.is('es') ? 'true' : null" @click="$store.lang.set('es')">Español</DemoButton>
+			<DemoButton class={langBtnActive} x-bind:data-active="$store.lang.is('en') ? 'true' : null" @click="$store.lang.set('en')">English</DemoButton>
+			<DemoButton class={langBtnActive} x-bind:data-active="$store.lang.is('fr') ? 'true' : null" @click="$store.lang.set('fr')">Français</DemoButton>
+			<DemoButton class={langBtnActive} x-bind:data-active="$store.lang.is('pt-BR') ? 'true' : null" @click="$store.lang.set('pt-BR')">Português (BR)</DemoButton>
+			<DemoButton @click="$store.lang.reset()">reset()</DemoButton>
+		</div>
+
+		<p class="mt-3 text-xs text-[var(--ios-label-secondary)]">
+			<code>languages</code> is <code>navigator.languages</code>, read once at mount — press
+			<em>Português (BR)</em> and watch <code>current</code>, <code>base</code> and
+			<code>region</code> move while <code>languages</code> does not. Setting the language
+			that is already current is a no-op, so clicking the active button emits no
+			<code>change</code>.
+		</p>
+	</DemoExample>
+
+	<DemoExample
+		title="Pair it with your own dictionary"
+		note="The whole integration is one branch per language you ship. This is what the package is for: it does not translate, it tells the template which language to show — reach for it when a picker and the rendering both have to agree."
+		code={DICTIONARY_CODE}
+	>
+		<div class="rounded-md border p-3 space-y-1">
+			<p class="text-xs uppercase tracking-wide text-[var(--ios-label-secondary)]">Reactive translations</p>
+			<p x-show="$store.lang.is('es')" x-cloak>Hola mundo</p>
+			<p x-show="$store.lang.is('en')" x-cloak>Hello world</p>
+			<p x-show="$store.lang.is('fr')" x-cloak>Bonjour le monde</p>
+			<p x-show="$store.lang.is('pt')" x-cloak>Olá mundo</p>
+			<p x-show="!$store.lang.is('es') && !$store.lang.is('en') && !$store.lang.is('fr') && !$store.lang.is('pt')" x-cloak class="text-[var(--ios-label-secondary)]">
+				No translation for <span x-text="$store.lang.current"></span>
+			</p>
+		</div>
+
+		<p class="mt-3 text-xs text-[var(--ios-label-secondary)]">
+			<code>is('pt')</code> is enough for the Brazilian button: a region-less candidate matches
+			the current base, so there is no need for an <code>is('pt-BR')</code> branch here.
+		</p>
+	</DemoExample>
+
+	<DemoExample
+		title="is() asks about the current tag, includes() about the reader"
+		note="The two predicates answer different questions and mixing them up is the usual bug: `is()` follows the app's selection, `includes()` follows the browser's list and never moves when you call `set()`."
+		code={QUERY_CODE}
+	>
+		<div class="rounded-md border p-3 space-y-1 text-sm">
+			<p class="text-xs uppercase tracking-wide text-[var(--ios-label-secondary)]">is() / includes()</p>
+			<ul class="list-disc list-inside space-y-1">
+				<li>is('es') → <strong x-text="$store.lang.is('es')"></strong></li>
+				<li>is('es-EC') → <strong x-text="$store.lang.is('es-EC')"></strong></li>
+				<li>is('fr') → <strong x-text="$store.lang.is('fr')"></strong></li>
+				<li>includes('es') → <strong x-text="$store.lang.includes('es')"></strong></li>
+				<li>includes('en') → <strong x-text="$store.lang.includes('en')"></strong></li>
+				<li>includes('fr') → <strong x-text="$store.lang.includes('fr')"></strong></li>
+			</ul>
+		</div>
+
+		<p class="mt-3 text-xs text-[var(--ios-label-secondary)]">
+			<code>includes()</code> does not follow the buttons above: it answers about the languages
+			the browser reported, not about the one the app is set to.
+		</p>
+	</DemoExample>
+</DemoSection>

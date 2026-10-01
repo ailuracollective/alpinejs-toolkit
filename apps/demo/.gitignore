@@ -1,0 +1,12 @@
+# Astro demo app
+.astro/
+dist/
+.vercel/
+.output/
+.astro-types.d.ts
+.env
+.env.*
+!.env.example
+node_modules/
+*.log
+.DS_Store

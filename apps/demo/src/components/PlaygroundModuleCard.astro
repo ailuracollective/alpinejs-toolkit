@@ -1,0 +1,64 @@
+---
+import { surfaceColor, surfaceLabel } from "../lib/surface-badge.js";
+import { type PluginNavItem, playgroundPath, pluginReadmeUrl } from "../plugin-nav";
+import DemoNavIcon from "./astro/DemoNavIcon.astro";
+
+interface Props {
+  item: PluginNavItem;
+}
+
+const { item } = Astro.props;
+const kindLabel = surfaceLabel(item.kind);
+const kindColor = surfaceColor(item.kind);
+---
+
+<article
+	class="card-hover group flex min-w-0 flex-col rounded-[var(--ios-radius-lg)] border border-[var(--ios-separator)] bg-[var(--ios-bg-secondary)] p-4 fade-in-up"
+>
+	<div class="mb-3 flex items-start justify-between gap-2">
+		<div class="flex min-w-0 items-center gap-3">
+			<span
+				class:list={["flex size-10 shrink-0 items-center justify-center rounded-[var(--ios-radius-md)]", kindColor]}
+				aria-hidden="true"
+			>
+				<DemoNavIcon id={item.id} class="size-5" />
+			</span>
+			<div class="min-w-0">
+				<h3 class="truncate font-semibold tracking-tight text-balance">
+					<a
+						href={playgroundPath(item.id)}
+						class="rounded-sm hover:text-[var(--ios-blue)] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ios-blue)]/50"
+					>
+						{item.title}
+					</a>
+				</h3>
+				<p class="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--ios-label-tertiary)]">
+					{kindLabel}
+				</p>
+			</div>
+		</div>
+	</div>
+	<p class="mb-3 line-clamp-2 min-h-[2.5rem] text-xs leading-relaxed text-[var(--ios-label-secondary)] text-pretty">
+		{item.description}
+	</p>
+	<p class="mb-3 truncate rounded-[var(--ios-radius-sm)] bg-[var(--ios-fill-quaternary)] px-2 py-1 font-mono text-[10px] text-[var(--ios-label-secondary)]" translate="no">
+		{item.api}
+	</p>
+	<div class="mt-auto flex flex-wrap gap-2">
+		<a
+			href={playgroundPath(item.id)}
+			class="inline-flex items-center rounded-full bg-[var(--ios-blue)] px-3.5 py-1.5 text-xs font-medium text-white transition-all hover:bg-[var(--ios-blue)]/80 hover:shadow-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ios-blue)]/50 touch-manipulation"
+		>
+			Open Demo
+		</a>
+		<a
+			href={pluginReadmeUrl(item.id)}
+			target="_blank"
+			rel="noreferrer"
+			class="inline-flex items-center rounded-full bg-[var(--ios-fill-tertiary)] px-3.5 py-1.5 text-xs font-medium text-[var(--ios-label)] transition-all hover:bg-[var(--ios-fill-secondary)] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ios-blue)]/50 touch-manipulation"
+		>
+			README
+			<span class="sr-only"> (opens in new tab)</span>
+		</a>
+	</div>
+</article>

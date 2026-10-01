@@ -1,0 +1,49 @@
+---
+import Card from "@/components/ui/Card.astro";
+import CardContent from "@/components/ui/CardContent.astro";
+import CardDescription from "@/components/ui/CardDescription.astro";
+import CardHeader from "@/components/ui/CardHeader.astro";
+import CardTitle from "@/components/ui/CardTitle.astro";
+
+interface Props {
+  id?: string;
+  title?: string;
+  api?: string;
+  package?: string;
+  description?: string;
+  class?: string;
+}
+
+const { id, title, api, package: pkg, description, class: className, ...rest } = Astro.props;
+const sectionClass = ["scroll-mt-20", className].filter(Boolean).join(" ");
+---
+
+<Card
+	id={id}
+	data-plugin-section={id ? "" : undefined}
+	class={sectionClass}
+	{...rest}
+>
+	{
+		Astro.slots.has("title") || title ? (
+			<CardHeader>
+				{Astro.slots.has("title") ? (
+					<CardTitle class="text-balance">
+						<slot name="title" />
+					</CardTitle>
+				) : (
+					<CardTitle class={api ? "text-balance inline-flex flex-wrap items-baseline gap-2" : "text-balance"}>
+						{title}
+						{api && (
+							<code class="shrink-0 rounded-[var(--ios-radius-sm)] bg-[var(--ios-fill-quaternary)] px-1.5 py-0.5 text-xs font-normal text-[var(--ios-label-secondary)]">{api}</code>
+						)}
+					</CardTitle>
+				)}
+				{description ? <CardDescription class="text-pretty">{description}</CardDescription> : null}
+			</CardHeader>
+		) : null
+	}
+	<CardContent class="space-y-4">
+		<slot />
+	</CardContent>
+</Card>

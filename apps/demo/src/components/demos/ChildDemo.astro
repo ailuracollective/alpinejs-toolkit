@@ -1,0 +1,210 @@
+---
+import { cn } from "@/lib/utils";
+import { docsPageUrl } from "../../config/urls.js";
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("child")!;
+const linkClasses =
+  "inline-flex items-center rounded-md bg-[var(--ios-blue)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--ios-blue)]/80";
+const buttonClasses =
+  "inline-flex items-center rounded-md border border-[var(--ios-separator)] bg-[var(--ios-bg-elevated)] px-4 py-2 text-sm font-medium hover:bg-[var(--ios-fill-quaternary)]";
+
+// The handler travels as an attribute, so this example needs a scope to read:
+// `clicks` lives in the `x-data` of the outer wrapper, not on the span.
+const LINK_CODE = `x-data="{ clicks: 0 }"
+
+<!-- The wrapper leaves the DOM entirely and the <a> takes its place,
+     carrying the <span>'s classes and handler. -->
+<span x-child
+      class="${linkClasses}"
+      @click="clicks++">
+  <a href="${docsPageUrl("/plugins/primitives/child/")}" class="no-underline text-inherit">Read the docs</a>
+</span>
+
+Clicks: <strong x-text="clicks"></strong>`;
+
+// Classes merge as token sets, not as strings. Attribute order carries no CSS
+// meaning — the cascade is decided by the stylesheet — so the wrapper's token
+// can never outrank the child's.
+const CLASS_MERGE_CODE = `<!-- class is the one attribute merged token by token.
+     A token on both sides appears once, keeping the child's ordering. -->
+<span x-child class="ring-2 ring-[var(--ios-fill-tertiary)]">
+  <button type="button" class="${cn(buttonClasses, "custom-child")}">Open</button>
+</span>
+
+<!-- class="${cn(buttonClasses, "custom-child")} ring-2 ring-[var(--ios-fill-tertiary)]" -->`;
+
+const STYLE_MERGE_CODE = `<!-- style merges PROPERTY BY PROPERTY, it is not concatenation.
+     outline and outline-offset are different properties, so neither clobbers
+     the other and all three declarations survive. -->
+<span x-child style="outline: 2px dashed var(--ios-blue); outline-offset: 4px;">
+  <button type="button" class="${buttonClasses}" style="font-weight: 600;">Styled child</button>
+</span>
+
+<!-- style="font-weight: 600; outline: 2px dashed var(--ios-blue); outline-offset: 4px;" -->`;
+
+// `replace` differs from the default mode only in what the child already had;
+// an attribute the child does not declare is still copied, exactly as before.
+const ATTRS_CODE = `<!-- In the default mode, an attribute the child ALREADY declares wins.
+     One the child does NOT declare is copied over from the wrapper. -->
+<span x-child aria-label="Open menu" data-component="child-demo">
+  <button type="button" class="${buttonClasses}" aria-label="Child label" data-track="child">Menu</button>
+</span>
+
+<!-- Result: aria-label="Child label"      — the child's
+             data-track="child"            — the child's
+             data-component="child-demo"   — the wrapper's, absent on the child -->`;
+
+const SCOPE_CODE = `x-data="{ saved: false }"
+
+<!-- The handler is transferred onto the child, but the scope is still the
+     span's: that is why saved is read and written from the promoted button. -->
+<span x-child @click="saved = !saved" class="${buttonClasses}">
+  <button type="button">
+    <span x-text="saved ? 'Saved' : 'Save'"></span>
+  </button>
+</span>`;
+
+const REPLACE_CODE = `<!-- .replace discards what the child already had, attribute by
+     attribute, with no union: the button's class and aria-label are lost. -->
+<span x-child.replace class="wrapper-token" aria-label="Wrapper label">
+  <button type="button" class="${buttonClasses}" aria-label="Child label">Replace mode</button>
+</span>
+
+<!-- Result: class="wrapper-token"  ·  aria-label="Wrapper label" -->`;
+
+const NO_TARGET_CODE = `<!-- With no element child, findFirstElementChild() has no target: the
+     plugin returns early and transfers NOTHING. -->
+<div x-child class="mt-3 rounded-md border border-dashed p-3">
+  <p>This wrapper has <code>x-child</code> but no element child.</p>
+</div>
+
+<!-- No error, no console.warn: the wrapper just stays there, class and all. -->`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-sm text-[var(--ios-label-secondary)] text-pretty">
+		One directive and nothing else: <code>x-child</code> keeps its wrapper, reads its
+		attributes, moves them onto the first element child and deletes the wrapper. What is
+		left in the DOM is the child, wearing the wrapper's look and behaviour.
+	</p>
+
+	<DemoExample
+		title="The child ends up where the wrapper was"
+		note="This is React's asChild pattern: a container that supplies the class and the handler, and exactly one real child. Click the link a few times — the span is no longer in the DOM and the counter still goes up, because the handler was copied onto the a."
+		open
+		code={LINK_CODE}
+	>
+		<div x-data="{ clicks: 0 }" data-testid="child-clicks">
+			<span x-child class={linkClasses} @click="clicks++">
+				<a href={docsPageUrl("/plugins/primitives/child/")} class="no-underline text-inherit">Read the docs</a>
+			</span>
+			<p class="text-xs text-[var(--ios-label-secondary)] mt-2">
+				Clicks: <strong x-text="clicks"></strong>
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="The child's classes survive; the wrapper's are appended"
+		note="The merge is token-wise, not string-wise, so the result does not depend on the order the two attributes are written in. Inspect the button: its own tokens first, the wrapper's after."
+		code={CLASS_MERGE_CODE}
+	>
+		{/*
+			A plain `<button>`, not a `DemoButton`: `x-child` merges onto one real
+			DOM node, and the whole point of this example is seeing which tokens
+			survive. A component would put a variant blob in the child's place and
+			hide the merge.
+		*/}
+		<span x-child class="ring-2 ring-[var(--ios-fill-tertiary)]">
+			<button type="button" class={cn(buttonClasses, "custom-child")}>Open</button>
+		</span>
+		<p class="text-xs text-[var(--ios-label-secondary)] mt-2">
+			Inspect the button — child classes are kept and wrapper tokens are appended.
+		</p>
+	</DemoExample>
+
+	<DemoExample
+		title="style merges one property at a time"
+		note="The two strings are not concatenated. The child's declarations come first, and one side's shorthand cannot swallow the other's longhand — which is why all three declarations in the example come through."
+		code={STYLE_MERGE_CODE}
+	>
+		{/*
+			Also a plain `<button>`: `DemoButton` takes no `style` prop, so a
+			component here would drop the one attribute this example is about.
+		*/}
+		<span x-child style="outline: 2px dashed var(--ios-blue); outline-offset: 4px;">
+			<button type="button" class={buttonClasses} style="font-weight: 600;">Styled child</button>
+		</span>
+	</DemoExample>
+
+	<DemoExample
+		title="aria-* and data-*: the child wins, the wrapper fills the gaps"
+		note="By default the rule is the usual one: the child decides what it declares, and the wrapper only supplies what is missing. data-component is not on the button, so it is copied over untouched."
+		code={ATTRS_CODE}
+	>
+		<span x-child aria-label="Open menu" data-component="child-demo">
+			<button type="button" class={buttonClasses} aria-label="Child label" data-track="child">
+				Menu
+			</button>
+		</span>
+		<p class="text-xs text-[var(--ios-label-secondary)] mt-2">
+			Child <code>aria-label</code> and <code>data-track</code> win; missing <code>data-component</code> is copied.
+		</p>
+	</DemoExample>
+
+	<DemoExample
+		title="The handler survives the morph and still sees the scope"
+		note="The handler is moved onto the promoted child as an attribute, and the child's own directives are re-run on the new node. That is what lets a button that is no longer inside the wrapper write to the wrapper's state."
+		code={SCOPE_CODE}
+	>
+		<div x-data="{ saved: false }">
+			<span x-child @click="saved = !saved" class={buttonClasses}>
+				<button type="button">
+					<span x-text="saved ? 'Saved' : 'Save'"></span>
+				</button>
+			</span>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title=".replace throws away what the button already had"
+		note="The other mode does not merge, it substitutes. The button's class and aria-label are lost and the wrapper's take their place. Useful when the child is an element you cannot change and its class is in the way."
+		code={REPLACE_CODE}
+	>
+		<span x-child.replace class="wrapper-token" aria-label="Wrapper label">
+			<button type="button" class={buttonClasses} aria-label="Child label">Replace mode</button>
+		</span>
+	</DemoExample>
+
+	<DemoExample
+		title="With no element child, nothing is transferred and nothing warns"
+		note="The plugin finds no target, so the wrapper is left intact. That is not an error: check the DOM, not the console."
+		code={NO_TARGET_CODE}
+	>
+		{/*
+			A real `x-child` with no element child, showing the real behaviour:
+			the plugin returns early and transfers nothing, silently. The demo
+			previously had a button that just `console.warn`ed its own string,
+			which read as a warning the package emits — it does not.
+		*/}
+		<div x-child class="mt-3 rounded-md border border-dashed p-3">
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				This wrapper has <code>x-child</code> but no element child. The plugin finds no target
+				and returns early — no attributes are transferred and nothing is warned about, so check
+				the DOM, not the console.
+			</p>
+		</div>
+	</DemoExample>
+
+	<p class="text-sm text-[var(--ios-label-secondary)] text-pretty">
+		What <code>x-child</code> does not do:
+	</p>
+	<ul class="text-xs text-[var(--ios-label-secondary)] list-disc pl-5 space-y-1">
+		<li>Only the first element child is kept — extra siblings are discarded with the wrapper.</li>
+		<li>Runtime <code>addEventListener</code> on the wrapper is not transferred.</li>
+		<li>Do not use on <code>x-for</code> / <code>x-if</code> wrappers.</li>
+	</ul>
+</DemoSection>

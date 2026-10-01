@@ -1,0 +1,153 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("collection")!;
+
+// The state lives in `src/demo/collection-demo.ts`, registered as
+// `Alpine.data("collectionDemo")`. What is documented here is the markup that
+// mounts it, not its internals: the module makes one `create()` and then only
+// mutates.
+const LIST_CODE = `<!-- collectionDemo calls $store.collection.create(id, …) ONCE
+     in init() and then only mutates. The template never rebuilds anything. -->
+<div x-data="collectionDemo">
+
+  <!-- apply() goes to setQuery(id, query), not to create() again. Rebuilding
+       on every keystroke is what this used to do. -->
+  <input type="search" x-model="query" @input.debounce.200ms="apply()" />
+
+  <!-- sort() calls setSort(id, compare, direction): it keeps the filter. -->
+  <button @click="sort()">Sort</button>
+  <button @click="toggleGroup()">Group</button>
+  <button @click="reset()">Reset</button>
+
+  <!-- BOTH views come from the same store. view is the current page;
+       groups is the UNPAGINATED view and is always computed, because group.by
+       was fixed at create(). The Group button only picks which one to render. -->
+  <template x-for="row in $store.collection.instances['playground-collection']?.view ?? []" :key="row.key">
+    <button @click="setActive(row.key)"><span x-text="row.item.name"></span></button>
+  </template>
+
+  <template x-for="group in $store.collection.instances['playground-collection']?.groups ?? []" :key="String(group.key)">
+    <strong x-text="\`\${group.label} · \${group.count}\`"></strong>
+    <template x-for="row in group.items" :key="row.key">
+      <button @click="setActive(row.key)"><span x-text="row.item.name"></span></button>
+    </template>
+  </template>
+
+  <!-- nextPage()/prevPage() confine the page to [1, pageCount] on their own. -->
+  <button @click="prevPage()">Previous</button>
+  <button @click="nextPage()">Next</button>
+  <span x-text="$store.collection.instances['playground-collection']?.page"></span>
+  /
+  <span x-text="$store.collection.instances['playground-collection']?.pageCount"></span>
+</div>
+
+<!-- Careful: the store does NOT register a magic. DEFAULT_COLLECTION_MAGIC_KEY is
+     exported, but collectionPlugin never calls guardMagic: there is no
+     $collection. Everything goes through $store.collection. -->`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-sm text-[var(--ios-label-secondary)] text-pretty">
+		One store, one live list. The collection is created once and then mutated in place:
+		<code>setQuery</code>, <code>setSort</code>, <code>setPage</code>,
+		<code>setActiveKey</code>. Clicking a row does not rebuild anything — the whole pipeline
+		is re-derived from the same items.
+	</p>
+
+	<DemoExample
+		title="Filter, sort, group and page over one live collection"
+		note="Type in the box and the query goes through setQuery, which keeps the filter function, the sort and the page size — the demo used to call create() again on every keystroke. Two things surprise people here: grouping is not a switch, since group.by was fixed at create() so groups is always computed and the Group button only picks which view the template renders; and groups is the UNPAGINATED projection, so paging never changes how many rows it holds."
+		open
+		code={LIST_CODE}
+	>
+		<div x-data="collectionDemo" data-testid="collection-list">
+			<div class="flex flex-wrap items-center gap-2">
+				<input
+					type="search"
+					x-model="query"
+					@input.debounce.200ms="apply()"
+					placeholder="Filter by name…"
+					aria-label="Filter the collection"
+					class="h-8 min-w-48 flex-1 rounded-full border border-[var(--ios-separator)] bg-[var(--ios-bg-secondary)] px-3 text-sm outline-none focus-visible:ring-3 focus-visible:ring-[var(--ios-blue)]/30"
+				/>
+				<DemoButton @click="sort()">Sort <span x-text="direction === 'asc' ? '↑' : '↓'"></span></DemoButton>
+				<DemoButton variant="ghost" @click="toggleGroup()">Group</DemoButton>
+				<DemoButton variant="ghost" @click="reset()">Reset</DemoButton>
+			</div>
+
+			<div class="flex flex-wrap items-center gap-3 text-xs text-[var(--ios-label-secondary)]">
+				<span><strong x-text="$store.collection.instances['playground-collection']?.view.length ?? 0"></strong> on this page</span>
+				<span>
+					page <strong x-text="$store.collection.instances['playground-collection']?.page"></strong>
+					/
+					<strong x-text="$store.collection.instances['playground-collection']?.pageCount"></strong>
+				</span>
+				<span>active: <strong x-text="$store.collection.instances['playground-collection']?.activeKey ?? '—'"></strong></span>
+				<span>query: <strong x-text="`${$store.collection.instances['playground-collection']?.query || '—'}`"></strong></span>
+			</div>
+
+			<ul
+				class="divide-y divide-[var(--ios-separator)] rounded-lg border border-[var(--ios-separator)]"
+				:class="grouped ? 'bg-[var(--ios-bg-secondary)]' : ''"
+			>
+				<template x-if="!grouped">
+					<template x-for="row in $store.collection.instances['playground-collection']?.view ?? []" :key="row.key">
+						<li>
+							<DemoButton
+								variant="ghost"
+								class="h-auto w-full justify-between gap-3 rounded-md px-3 py-2 text-left whitespace-normal"
+								:class="row.key === $store.collection.instances['playground-collection']?.activeKey ? 'bg-[var(--ios-blue)]/10' : ''"
+								@click="setActive(row.key)"
+							>
+								<span x-text="row.item.name"></span>
+								<span class="text-xs text-[var(--ios-label-secondary)]">
+									<span x-text="row.item.family"></span> ·
+									<strong x-text="row.item.stock"></strong> in stock
+								</span>
+							</DemoButton>
+						</li>
+					</template>
+				</template>
+				<template x-if="grouped">
+					<template x-for="group in $store.collection.instances['playground-collection']?.groups ?? []" :key="String(group.key)">
+						<li>
+							<p class="bg-[var(--ios-fill-quaternary)] px-3 py-1.5 text-[10px] font-semibold tracking-wider text-[var(--ios-label-secondary)] uppercase">
+								<span x-text="`${group.label} · ${group.count}`"></span>
+							</p>
+							<ul>
+								<template x-for="row in group.items" :key="row.key">
+									<li>
+										<DemoButton
+											variant="ghost"
+											class="h-auto w-full justify-between gap-3 rounded-md px-3 py-2 text-left whitespace-normal"
+											@click="setActive(row.key)"
+										>
+											<span x-text="row.item.name"></span>
+											<span class="text-xs text-[var(--ios-label-secondary)]">
+												<strong x-text="row.item.stock"></strong> in stock
+											</span>
+										</DemoButton>
+									</li>
+								</template>
+							</ul>
+						</li>
+					</template>
+				</template>
+			</ul>
+
+			<div class="flex items-center gap-2">
+				<DemoButton @click="prevPage()">Previous</DemoButton>
+				<DemoButton @click="nextPage()">Next</DemoButton>
+				<p class="text-xs text-[var(--ios-label-secondary)]">
+					The controller confines the page to <code>[1, pageCount]</code> itself, so paging
+					past the end lands on the last page instead of showing <code>page 4 / 3</code> over
+					an empty view.
+				</p>
+			</div>
+		</div>
+	</DemoExample>
+</DemoSection>

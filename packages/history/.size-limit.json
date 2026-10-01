@@ -1,0 +1,11 @@
+[
+  {
+    "name": "history full surface",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "3 kB",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core"],
+    "gzip": true,
+    "brotli": true
+  }
+]

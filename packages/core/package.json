@@ -1,0 +1,106 @@
+{
+  "name": "@ailura/alpinejs-core",
+  "version": "0.0.0",
+  "description": "Shared infrastructure for Alpine.js toolkit plugins: controllers, guards, bridges, and SSR-safe helpers.",
+  "keywords": [
+    "alpine",
+    "alpinejs",
+    "core",
+    "headless",
+    "plugin",
+    "state"
+  ],
+  "homepage": "https://github.com/ailuracollective/alpinejs-toolkit#readme",
+  "bugs": {
+    "url": "https://github.com/ailuracollective/alpinejs-toolkit/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ailuracollective/alpinejs-toolkit.git",
+    "directory": "packages/core"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./bridge": {
+      "types": "./dist/bridge.d.mts",
+      "import": "./dist/bridge.mjs"
+    },
+    "./constants": {
+      "types": "./dist/constants.d.mts",
+      "import": "./dist/constants.mjs"
+    },
+    "./controller": {
+      "types": "./dist/controller.d.mts",
+      "import": "./dist/controller.mjs"
+    },
+    "./directives": {
+      "types": "./dist/directives.d.mts",
+      "import": "./dist/directives.mjs"
+    },
+    "./env": {
+      "types": "./dist/env.d.mts",
+      "import": "./dist/env.mjs"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.mts",
+      "import": "./dist/errors.mjs"
+    },
+    "./guards": {
+      "types": "./dist/guards.d.mts",
+      "import": "./dist/guards.mjs"
+    },
+    "./ids": {
+      "types": "./dist/ids.d.mts",
+      "import": "./dist/ids.mjs"
+    },
+    "./singletons": {
+      "types": "./dist/singletons.d.mts",
+      "import": "./dist/singletons.mjs"
+    },
+    "./sync": {
+      "types": "./dist/sync.d.mts",
+      "import": "./dist/sync.mjs"
+    },
+    "./invariant": {
+      "types": "./dist/invariant.d.mts",
+      "import": "./dist/invariant.mjs"
+    },
+    "./registration": {
+      "types": "./dist/registration.d.mts",
+      "import": "./dist/registration.mjs"
+    }
+  },
+  "scripts": {
+    "build": "vp pack",
+    "test": "vp test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "size": "size-limit",
+    "size:why": "size-limit --why"
+  },
+  "devDependencies": {
+    "@ailura/alpinejs-testing": "workspace:*",
+    "@size-limit/esbuild-why": "^13.0.3",
+    "@size-limit/preset-small-lib": "^13.0.3",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@types/alpinejs": "3.13.11",
+    "alpinejs": "^3.14.0",
+    "happy-dom": "^20.14.0",
+    "typescript": "^5.5.0",
+    "vite-plus": "^0.3.0"
+  },
+  "peerDependencies": {
+    "alpinejs": "^3.0.0"
+  }
+}

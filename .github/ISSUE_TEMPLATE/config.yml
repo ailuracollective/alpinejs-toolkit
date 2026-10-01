@@ -1,0 +1,6 @@
+# Blank issues are enabled because this repository has no configured remote and its
+# issue tracker location is unknown. GitHub only accepts `contact_links` entries that
+# point at a real, existing destination, and inventing a Discord invite, discussions URL,
+# or support dashboard would send contributors to a dead end. Until a maintainer supplies
+# the real tracker destination, blank issues stay open as a valid path.
+blank_issues_enabled: true

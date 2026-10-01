@@ -1,0 +1,237 @@
+---
+import {
+  buildPlaygroundSidebarSections,
+  getPlaygroundDemoCount,
+  playgroundFamilyPath,
+  playgroundPackagePath,
+} from "../catalog/playground-navigation.js";
+import DemoButton from "./astro/DemoButton.astro";
+import DemoNavIcon from "./astro/DemoNavIcon.astro";
+
+const navBaseClass =
+  "group relative flex h-9 w-full items-center rounded-lg text-sm transition-all duration-150 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ios-blue)]/40 focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--ios-bg-secondary)] touch-manipulation";
+const navActiveClass = "bg-[var(--ios-blue)]/15 font-medium text-[var(--ios-blue)] ";
+const navInactiveClass =
+  "text-[var(--ios-label-secondary)] hover:bg-[var(--ios-fill-quaternary)] active:bg-[var(--ios-fill-tertiary)] hover:text-[var(--ios-label)] ";
+
+// Layers first, families second — `buildPlaygroundSidebarSections` is where the
+// order is decided, and why, so the template does not have to restate it.
+const sections = buildPlaygroundSidebarSections();
+const demoCount = getPlaygroundDemoCount();
+
+const isActivePath = (path: string): string => {
+  const pathNoSlash = path.replace(/\/$/, "");
+  return `(pathname === '${path}' || pathname === '${pathNoSlash}' || pathname.startsWith('${pathNoSlash}/'))`;
+};
+
+const isActiveExpr = (path: string): string => `${isActivePath(path)} ? 'page' : null`;
+
+/*
+ * The brand link at the top of the sidebar is the site root, and the demos are
+ * the whole site — so it is current on every page, and that is written as a
+ * literal `aria-current` below rather than computed.
+ *
+ * It used to be `isActiveExpr("/playground/")`. With the prefix gone it would
+ * have degenerated into `pathname.startsWith('/')`, which is true for the entire
+ * web and therefore asserts nothing. `isActivePath` also strips a trailing
+ * slash, so the root collapses to `""` and the comparison never matches at all.
+ * A static attribute is the same answer, stated honestly.
+ */
+
+const paddingSuffix = " + (effectivelyExpanded ? 'gap-3.5 px-3' : 'justify-center gap-0 px-2')";
+
+const navItemClassExpr = (path: string): string => {
+  return `${isActivePath(path)} ? '${navActiveClass}'${paddingSuffix} : '${navInactiveClass}'${paddingSuffix}`;
+};
+---
+
+<!-- Sidebar overlay — mobile only -->
+<button
+  type="button"
+  x-show="$store.media.breakpoint !== 'desktop' && $store.sidebar.visible"
+  x-transition:enter="transition-opacity ease-[cubic-bezier(0.32,0.72,0,1)] duration-[320ms] motion-reduce:transition-none"
+  x-transition:enter-start="opacity-0"
+  x-transition:enter-end="opacity-100"
+  x-transition:leave="transition-opacity ease-[cubic-bezier(0.32,0.72,0,1)] duration-[220ms] motion-reduce:transition-none"
+  x-transition:leave-start="opacity-100"
+  x-transition:leave-end="opacity-0"
+  class="fixed inset-0 z-30 border-0 bg-black/30 p-0 motion-reduce:transition-none touch-manipulation backdrop-blur-sm"
+  x-on:click="$store.sidebar.hide()"
+  aria-label="Close navigation"
+  style="display: none;"
+></button>
+
+<aside
+  x-show="$store.media.breakpoint === 'desktop' || $store.sidebar.visible"
+  x-transition:enter="transition-[transform] ease-[cubic-bezier(0.32,0.72,0,1)] duration-[380ms] will-change-transform motion-reduce:transition-none"
+  x-transition:enter-start="-translate-x-full"
+  x-transition:enter-end="translate-x-0"
+  x-transition:leave="transition-[transform] ease-[cubic-bezier(0.32,0.72,0,1)] duration-[240ms] will-change-transform motion-reduce:transition-none"
+  x-transition:leave-start="translate-x-0"
+  x-transition:leave-end="-translate-x-full"
+  class="fixed top-0 bottom-0 left-0 z-40 flex flex-col overflow-hidden border-r border-[var(--ios-separator)] bg-[var(--ios-bg-secondary)]/80 text-[var(--ios-label)] shadow-xl backdrop-blur-2xl backdrop-saturate-150 transition-[top,width] duration-300 ease-out motion-reduce:transition-none"
+  x-cloak
+  x-data="{ pathname: typeof window !== 'undefined' ? window.location.pathname : '/', navTooltip: '', navTrigger: null }"
+  x-init="
+    $store.tooltip.create('sidebar-nav', { openDelay: 120, closeDelay: 80 });
+    const scrollKey = 'playground-sidebar-nav-scroll';
+    const readScroll = () => Number(sessionStorage.getItem(scrollKey) ?? 0);
+    const writeScroll = (value) => sessionStorage.setItem(scrollKey, String(value));
+    const restoreNavScroll = () => {
+      const navEl = $el.querySelector('nav');
+      if (!navEl) {
+        return;
+      }
+      navEl.scrollTop = readScroll();
+    };
+    const nav = $el.querySelector('nav');
+    restoreNavScroll();
+    nav?.addEventListener('scroll', () => writeScroll(nav.scrollTop), { passive: true });
+    nav?.addEventListener('focusin', (event) => {
+      const link = event.target instanceof Element ? event.target.closest('a[href]') : null;
+      if (link && !link.matches(':focus-visible')) {
+        requestAnimationFrame(() => {
+          nav.scrollTop = readScroll();
+        });
+      }
+    });
+    nav?.addEventListener('click', (event) => {
+      if (event.target instanceof Element && event.target.closest('a[href]')) {
+        writeScroll(nav.scrollTop);
+      }
+    }, { capture: true });
+    document.addEventListener('astro:before-swap', () => {
+      const navEl = $el.querySelector('nav');
+      if (navEl) {
+        writeScroll(navEl.scrollTop);
+      }
+    });
+    document.addEventListener('astro:after-swap', () => {
+      pathname = window.location.pathname;
+      requestAnimationFrame(() => {
+        restoreNavScroll();
+        requestAnimationFrame(restoreNavScroll);
+      });
+    });
+  "
+  x-bind:class="`${!expanded ? 'w-16' : 'w-64'}`"
+  aria-label="Playground navigation"
+  transition:persist="playground-sidebar"
+>
+  <a
+    href="/"
+    class="flex h-12 shrink-0 items-center gap-3 border-b border-[var(--ios-separator)] transition-colors duration-150 hover:bg-[var(--ios-fill-quaternary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ios-blue)]/40 focus-visible:ring-inset motion-reduce:transition-none"
+    x-bind:class="effectivelyExpanded ? 'px-4' : 'justify-center px-0'"
+    x-on:click="$store.media.breakpoint !== 'desktop' && $store.sidebar.hide()"
+    aria-current="page"
+  >
+    <img src="/logo.svg" alt="" width="28" height="28" class="size-7 shrink-0 rounded-lg" />
+    <span
+      class="overflow-hidden whitespace-nowrap text-[15px] font-semibold tracking-tight"
+      x-show="effectivelyExpanded"
+      x-cloak
+    >
+      Toolkit
+    </span>
+  </a>
+
+  <nav
+    class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-anchor-none py-3 transition-[padding] duration-200 motion-reduce:transition-none"
+    x-bind:class="effectivelyExpanded ? 'px-3' : 'px-1.5'"
+    aria-label="Plugins"
+  >
+    {
+      sections.map((section) => (
+        <div class="mt-2">
+          <a
+            href={playgroundFamilyPath(section.id)}
+            class="mb-1 block truncate px-3 pt-3 pb-1 text-[11px] font-semibold tracking-wide whitespace-nowrap text-[var(--ios-label-tertiary)] uppercase transition-colors hover:text-[var(--ios-label)]"
+            x-show="effectivelyExpanded"
+            x-cloak
+          >
+            {section.title}
+          </a>
+
+          <div class="flex flex-col gap-0.5">
+            {section.entries.map((entry) => (
+              <a
+                href={playgroundPackagePath(entry)}
+                class={navBaseClass}
+                x-bind:aria-current={isActiveExpr(playgroundPackagePath(entry))}
+                x-bind:aria-label={`!effectivelyExpanded ? ${JSON.stringify(entry.title)} : null`}
+                x-bind:class={navItemClassExpr(playgroundPackagePath(entry))}
+                x-on:mousedown.prevent
+                x-on:click="$store.media.breakpoint !== 'desktop' && $store.sidebar.hide()"
+                x-on:mouseenter={`navTooltip = ${JSON.stringify(entry.title)}; navTrigger = $el; $store.tooltip.showOnHover('sidebar-nav')`}
+                x-on:mouseleave="$store.tooltip.hideOnHover('sidebar-nav')"
+                x-on:focus={`navTooltip = ${JSON.stringify(entry.title)}; navTrigger = $el; $store.tooltip.showOnFocus('sidebar-nav')`}
+                x-on:blur="$store.tooltip.hideOnFocus('sidebar-nav')"
+              >
+                <DemoNavIcon id={entry.id} class="size-5" />
+                <span class="truncate whitespace-nowrap" x-show="effectivelyExpanded" x-cloak>
+                  {entry.title}
+                </span>
+              </a>
+            ))}
+          </div>
+        </div>
+      ))
+    }
+  </nav>
+
+  <div
+    class="flex shrink-0 flex-col border-t border-[var(--ios-separator)] transition-[padding] duration-200 motion-reduce:transition-none"
+    x-bind:class="effectivelyExpanded ? 'p-3' : 'px-1.5 py-2'"
+  >
+    <DemoButton
+      variant="ghost"
+      size="sm"
+      class="hidden text-[var(--ios-label-secondary)] hover:bg-[var(--ios-fill-quaternary)] hover:text-[var(--ios-label)] sm:inline-flex motion-reduce:transition-none"
+      x-show="$store.media.breakpoint === 'desktop'"
+      x-on:click="expanded = !expanded"
+      x-bind:aria-label="expanded ? 'Collapse sidebar' : 'Expand sidebar'"
+      x-bind:aria-expanded="expanded"
+      x-bind:class="expanded ? 'h-7 w-full justify-start' : 'mx-auto size-9 justify-center px-0'"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        stroke-width="2"
+        aria-hidden="true"
+        x-show="!expanded"
+        x-cloak
+        x-bind:class="expanded ? 'rotate-180' : ''"
+      >
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+      </svg>
+      <span x-show="expanded" x-cloak>Collapse</span>
+    </DemoButton>
+    <p
+      class="px-1 pt-2 text-center text-[10px] leading-snug text-[var(--ios-label-tertiary)]"
+      x-show="effectivelyExpanded"
+      x-cloak
+    >
+      {demoCount} demos · {sections.length} families
+    </p>
+  </div>
+
+  <template x-teleport="#overlay-root">
+    <div
+      x-show="$store.tooltip.isOpen('sidebar-nav') && !effectivelyExpanded && $store.media.breakpoint === 'desktop'"
+      x-anchor.right.end.fixed.noflip.offset.8="navTrigger"
+      :style="{ zIndex: $store.overlay.zIndexOf('tooltip', 'sidebar-nav') }"
+      role="tooltip"
+      x-transition:enter="transition-[opacity,transform] ease-[cubic-bezier(0.32,0.72,0,1)] duration-150 motion-reduce:transition-none"
+      x-transition:enter-start="opacity-0 scale-95"
+      x-transition:enter-end="opacity-100 scale-100"
+      x-transition:leave="transition-[opacity,transform] ease-[cubic-bezier(0.32,0.72,0,1)] duration-100 motion-reduce:transition-none"
+      x-transition:leave-start="opacity-100 scale-100"
+      x-transition:leave-end="opacity-0 scale-95"
+      class="pointer-events-none whitespace-nowrap rounded-md bg-[var(--ios-bg-elevated)] px-2.5 py-1 text-xs font-medium text-[var(--ios-label)] shadow-md ring-1 ring-[var(--ios-separator)]"
+      x-text="navTooltip"
+    ></div>
+  </template>
+</aside>

@@ -1,0 +1,147 @@
+name: CI
+
+# This workflow owns the CODE gates only: lint, format, tests, build, bundle budget, types.
+#
+# Everything about the CONTRIBUTION PROCESS is enforced elsewhere and is deliberately not
+# duplicated here:
+#
+#   - branch name and its   -> policy.yml, job `branch-validation`
+#     ownership by author     (ailuracollective/actions/branch-validation@v1)
+#   - linked issue and its  -> policy.yml, job `pull-request-policy`
+#     `status:approved`       (enable-linked-issue)
+#   - exactly one type      -> policy.yml, job `pull-request-policy`
+#     label on the PR         (enable-type-label)
+#   - PR title length       -> policy.yml, job `pull-request-policy`
+#                               (enable-title-length, title-min / title-max)
+#   - PR title as a
+#     Conventional Commit   -> policy.yml, job `pull-request-policy`
+#                               (enable-title-conventional)
+#   - PR body sections      -> policy.yml, job `pull-request-policy`
+#                               (enable-body-structure)
+#   - dependency updates    -> dependabot.yml
+#   - security scanning     -> CodeQL, Socket Security
+#   - preview deploys       -> Vercel
+#
+# A gate that lives in two workflows drifts: one copy gets fixed and the other keeps rejecting,
+# or worse, stops rejecting. Each of these is owned in exactly one place.
+on:
+  push:
+    # `master` only. A feature branch push already triggers the `pull_request` leg below, so an
+    # unqualified `push` would run this workflow twice for every pull request branch, for the
+    # same result.
+    branches: [master]
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+# One run per ref. A second push to an open pull request supersedes the first, and the superseded
+# run is cancelled instead of being left to finish and report on a commit nobody is shipping.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Nothing here writes to the repository, checks out a pull request head, or publishes anything,
+# so the token needs to read and nothing more. A job-level `permissions` block replaces this one
+# rather than adding to it.
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Verify
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout first, and it has to be first. GitHub resolves a local `uses: ./path` against the
+      # workspace as it exists when that step runs, so a workflow that opens with the composite
+      # action below would fail before it started: `.github/actions/` would not have been checked
+      # out yet. `publish.yml` has the same checkout for the same reason.
+      - uses: actions/checkout@v7
+
+      # pnpm, Node, frozen install — in one place, with the reasons for all three kept in one
+      # place. `publish.yml` runs the same action; a bootstrap decided twice is a bootstrap that
+      # drifts. The checkout above stays out of it precisely because the two callers do not agree
+      # on what to check out: `publish.yml` checks out a release tag.
+      - name: Set up the workspace
+        uses: ./.github/actions/setup-workspace
+
+      # Vite Task caches task results in `node_modules/.vite/task-cache` at the workspace root and
+      # replays them on a later run when the fingerprint still matches. This workflow's gates run
+      # through `vp run`, so without a cache every run pays full price for work whose inputs did not
+      # change. Measured locally on an immediate second run: build 40/41 (97%, 100.88s saved),
+      # typecheck 42/44 (95%, 69.82s saved), size 39/39 (100%, 7.06s saved).
+      #
+      # Restore AFTER the install, deliberately: installing can recreate `node_modules` and take the
+      # cache directory with it.
+      #
+      # The key is deliberately rolling and deliberately excludes source files and the lockfile.
+      # GitHub decides what to restore from this key; Vite Task then decides which individual tasks
+      # actually replay. Putting the lockfile in the Actions key would make GitHub skip useful
+      # restores before Vite Task ever gets to fingerprint anything.
+      #
+      # Upstream marks this reuse as experimental and asks that it be measured rather than assumed.
+      # The measurement is the hit rate quoted above; if it stops paying for itself, delete these two
+      # steps and nothing else has to change.
+      - name: Restore the Vite Task cache
+        id: vite-task-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: node_modules/.vite/task-cache
+          key: vite-task-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vite-task-${{ runner.os }}-${{ runner.arch }}-
+
+      # Lint and format only. `pnpm check` is `vp check`, which does NOT typecheck, which is why
+      # the TypeScript step at the bottom is load-bearing rather than redundant.
+      - name: Lint and format
+        run: pnpm run check
+
+      # `build` runs BEFORE `test`, and that order is load-bearing, not stylistic. Package
+      # resolution in the test suite goes through the workspace `exports` maps, and every subpath
+      # there points at build output: `./controller` resolves to `./dist/controller.mjs`. A test
+      # that imports `@ailura/alpinejs-core/controller` therefore cannot resolve until that
+      # package has been built. Running tests first fails the suite with
+      # `Cannot find package '@ailura/alpinejs-core/controller'` on a clean checkout, while
+      # passing locally on a tree that already carries `dist/`. Reproduced and confirmed.
+      - name: Build every workspace
+        run: pnpm run build
+
+      # `vp run test`, not `pnpm run test`, and the difference is the whole point. `pnpm run test`
+      # executes the `vp test` command directly, and a direct command never goes through Vite Task,
+      # so it is never cached: that step cost 14s on every run, unconditionally. `vp run test` hands
+      # the same command to the task runner, which fingerprints it and replays it when nothing
+      # changed — measured 8.93s saved on an immediate second run, with the previous run's output
+      # replayed so the step still reports 99 files and 845 tests.
+      #
+      # `pnpm exec`, because a bare `vp` is not on the PATH of a `run:` step. `vp` is a root
+      # devDependency, so its binary lives in `node_modules/.bin`, and only `pnpm run`/`pnpm exec`
+      # put that on the PATH. Every other gate here goes through a `pnpm run` script for the same
+      # reason.
+      #
+      # `pnpm test` is deliberately left as the contributor-facing script, running the suite for
+      # real. A test command that can silently replay is the wrong default for someone who just
+      # pressed it expecting to find out whether their change works.
+      #
+      # 845 tests across 99 files. Dropping this step is how a red suite merges with a green check.
+      - name: Test
+        run: pnpm exec vp run test
+
+      # The bundle budget. Every package declares its own `.size-limit.json` measuring
+      # `dist/index.mjs`, so this reads the build output from two steps above. Without it a
+      # package grows past its published budget silently.
+      - name: Bundle size budget
+        run: pnpm run size
+
+      # Types, last. Separate from `pnpm run check` because that one is lint and format only.
+      - name: TypeScript
+        run: pnpm run typecheck
+
+      # Save only what the whole run earned. `success()` means a red gate leaves the cache exactly as
+      # it was, so a failed run can never poison the next one. The primary key carries `run_id` and
+      # `run_attempt`, so each successful run writes a new immutable entry instead of overwriting a
+      # shared one, and the restore prefix finds the newest compatible entry.
+      - name: Save the Vite Task cache
+        if: success()
+        uses: actions/cache/save@v6
+        with:
+          path: node_modules/.vite/task-cache
+          key: ${{ steps.vite-task-cache.outputs.cache-primary-key }}

@@ -1,0 +1,11 @@
+[
+  {
+    "name": "query-adapter-zustand full surface",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "600 B",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core", "@ailura/alpinejs-query", "zustand"],
+    "gzip": true,
+    "brotli": true
+  }
+]

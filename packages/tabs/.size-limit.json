@@ -1,0 +1,11 @@
+[
+  {
+    "name": "tabs full surface",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "2.5 kB",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core"],
+    "gzip": true,
+    "brotli": true
+  }
+]

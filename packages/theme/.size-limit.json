@@ -1,0 +1,16 @@
+[
+  {
+    "name": "theme full surface",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "2.1 kB",
+    "ignore": [
+      "alpinejs",
+      "@ailura/alpinejs-core",
+      "@ailura/alpinejs-state-machine",
+      "@ailura/alpinejs-ui"
+    ],
+    "gzip": true,
+    "brotli": true
+  }
+]

@@ -1,0 +1,250 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import Alert from "../astro/Alert.astro";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("attention")!;
+
+const WAKELOCK_CODE = `<div x-data>
+  <!-- Neither API exists in Firefox or Safari, so the "unsupported" state is
+       PAINTED. A button that does nothing is worse than a text that says so. -->
+  <Alert variant="warning" x-show="!$wakelock.isSupported" x-cloak>
+    Screen Wake Lock is not available in this browser.
+  </Alert>
+
+  <DemoButton
+    x-show="$wakelock.isSupported"
+    x-cloak
+    x-bind:disabled="$wakelock.isRequesting"
+    @click="$wakelock.isActive ? $wakelock.release() : $wakelock.request()"
+  >
+    <span x-text="$wakelock.isActive ? 'release()' : 'request()'"></span>
+  </DemoButton>
+
+  <!-- request() returns false and sets error; it does not throw. The message you
+       see is the browser's own, verbatim ("The requesting page is not visible", etc.). -->
+  <p x-show="$wakelock.error" x-cloak x-text="$wakelock.error"></p>
+</div>`;
+
+const GESTURE_CODE = `<!-- Careful: request() has to be called from a user gesture.
+     That is why this CANNOT be an x-effect or an x-init: the browser
+     rejects the request outside a gesture and the rejection lands in error.
+
+     isRequesting goes true while it waits, so this is where to disable the
+     button and avoid firing two requests. -->
+<DemoButton
+  x-bind:disabled="$wakelock.isRequesting"
+  @click="$wakelock.request()"
+>
+  request()
+</DemoButton>
+
+<!-- isActive reads sentinel.released, not the reference: the OS revokes the
+     lock when the tab is hidden, and the sentinel is still there. -->
+<p>isActive: <span x-text="$wakelock.isActive"></span></p>
+
+<!-- Teardown is the host's job. Nothing calls it for you. -->
+<DemoButton variant="ghost" @click="$wakelock.destroy()">destroy()</DemoButton>`;
+
+const IDLE_CODE = `<!-- Careful: requestPermission() returns 'granted' where the API does NOT
+     exist. That is not a failure: there is no prompt to deny, and reporting
+     'denied' would leave you unable to ever start — exactly in the browsers
+     where the fallback matters most.
+
+     The practical consequence: permission does NOT tell you whether a prompt
+     was shown. Ask for isSupported first. -->
+<p>isSupported: <span x-text="$idle.isSupported"></span></p>
+<p>permission:  <span x-text="$idle.permission ?? 'unknown'"></span></p>
+
+<DemoButton
+  x-show="$idle.isSupported && $idle.permission !== 'granted' && !$idle.isWatching"
+  x-cloak
+  @click="await $idle.requestPermission()"
+  x-bind:disabled="$idle.isLoading"
+>
+  requestPermission()
+</DemoButton>`;
+
+const FALLBACK_CODE = `<!-- threshold is raised to the API's minimum: 60 s. Asking for 5 s does
+     not throw, it silently becomes 60 s — MIN_IDLE_THRESHOLD and
+     DEFAULT_IDLE_THRESHOLD are the same number because the browser throws
+     below 60 s. -->
+<DemoButton
+  x-show="$idle.isSupported && $idle.permission === 'granted' && !$idle.isWatching"
+  x-cloak
+  @click="await $idle.start({ threshold: 120000 })"
+  x-bind:disabled="$idle.isLoading"
+>
+  start(2 min threshold)
+</DemoButton>
+
+<DemoButton x-show="$idle.isWatching" x-cloak @click="$idle.stop()">stop()</DemoButton>
+
+<Alert variant="warning" x-show="$idle.isIdle" x-cloak>
+  User is idle — pause expensive work.
+</Alert>
+
+<!-- WITHOUT the API, start() does not do idle detection: it sets userState
+     'active', and after <threshold> ms it sets 'idle' ONCE and never returns. It
+     does not see input, so it will call someone who never left idle. And screen
+     'unlocked' always, because there is no signal saying otherwise. -->`;
+// ──
+---
+
+<DemoSection
+	id={plugin.id}
+	title={plugin.title}
+	api={plugin.api}
+	description={plugin.description}
+>
+	<Alert variant="info" class="mb-3">
+		Both APIs in this package are in Chrome and Edge, and they <strong>do not
+		exist in Firefox or Safari</strong>. This page opens in both: in Firefox you
+		will see the "unsupported" notices instead of buttons that do nothing. That
+		is the behavior you have to write, not a bug in the page.
+	</Alert>
+
+	<DemoExample
+		title="The unsupported state is stated, not hidden"
+		note="A button that does nothing is worse than a text that says so. The package never throws over a missing API — it reports it — but reporting is half of it: painting it is the page's job."
+		open
+		code={WAKELOCK_CODE}
+	>
+		<div class="space-y-3">
+			<Alert variant="warning" x-show="!$wakelock.isSupported" x-cloak>
+				Screen Wake Lock is not available in this browser.
+			</Alert>
+
+			<DemoButton
+				x-show="$wakelock.isSupported"
+				x-cloak
+				x-bind:disabled="$wakelock.isRequesting"
+				data-testid="wakelock-toggle"
+				@click="$wakelock.isActive ? $wakelock.release() : $wakelock.request()"
+			>
+				<span x-text="$wakelock.isActive ? 'release()' : 'request()'"></span>
+			</DemoButton>
+
+			<ul class="list-disc list-inside space-y-1 text-sm" data-testid="attention-state">
+				<li>
+					Wake lock:
+					<strong x-text="$wakelock.isSupported ? ($wakelock.isActive ? 'active' : 'inactive') : 'unsupported'"></strong>
+				</li>
+				<li>
+					Idle detection:
+					<strong x-text="$idle.isSupported ? 'supported' : 'unsupported'"></strong>
+				</li>
+			</ul>
+
+			<p class="text-sm text-[var(--ios-red)]" x-show="$wakelock.error" x-cloak x-text="$wakelock.error"></p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="request() needs a gesture: that is why it lives in the @click"
+		note="Press it while the tab is not visible and the browser rejects it. The message that appears is the browser's own, verbatim — the package does not rewrite it. Also notice that the OS revokes the lock when the tab is hidden: `isActive` reads it from the sentinel, so it turns itself off."
+		code={GESTURE_CODE}
+	>
+		<div x-data class="space-y-3">
+			<div class="flex flex-wrap gap-2">
+				<DemoButton x-bind:disabled="$wakelock.isRequesting" @click="$wakelock.request()">
+					request()
+				</DemoButton>
+				<DemoButton variant="ghost" @click="$wakelock.release()">release()</DemoButton>
+				<DemoButton variant="secondary" @click="$wakelock.destroy()">destroy()</DemoButton>
+			</div>
+			<p class="text-sm">
+				isActive: <strong x-text="$wakelock.isActive"></strong> · isRequesting:
+				<strong x-text="$wakelock.isRequesting"></strong> · isSupported:
+				<strong x-text="$wakelock.isSupported"></strong>
+			</p>
+			<p class="text-sm text-[var(--ios-red)]" x-show="$wakelock.error" x-cloak x-text="$wakelock.error"></p>
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				<code>destroy()</code> is the host's job: nothing calls it for you. On a
+				normal page it makes no difference — the page outlives the lock — but
+				in a test or an SPA route, a wake lock that is never released is a leak.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="permission says 'granted' even where there is no API"
+		note="The most surprising trap in the package. There is no prompt to deny where there is no API, so it reports 'granted' instead of 'denied'. The practical consequence: `permission` does not tell you whether a prompt was shown, and the line above is the one that does."
+		code={IDLE_CODE}
+	>
+		<div x-data class="space-y-3">
+			<div class="grid gap-2 text-xs sm:grid-cols-3">
+				<div class="rounded-md border border-[var(--ios-separator)] p-2">
+					<p class="text-[var(--ios-label-tertiary)]">isSupported</p>
+					<p class="font-mono" x-text="$idle.isSupported">—</p>
+				</div>
+				<div class="rounded-md border border-[var(--ios-separator)] p-2">
+					<p class="text-[var(--ios-label-tertiary)]">permission</p>
+					<p class="font-mono" data-testid="idle-permission" x-text="$idle.permission ?? 'unknown'">—</p>
+				</div>
+				<div class="rounded-md border border-[var(--ios-separator)] p-2">
+					<p class="text-[var(--ios-label-tertiary)]">threshold</p>
+					<p class="font-mono" x-text="$idle.threshold">—</p>
+				</div>
+			</div>
+
+			<DemoButton
+				x-show="$idle.isSupported && $idle.permission !== 'granted' && !$idle.isWatching"
+				x-cloak
+				data-testid="idle-permission-button"
+				@click="await $idle.requestPermission()"
+				x-bind:disabled="$idle.isLoading"
+			>
+				requestPermission()
+			</DemoButton>
+
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				In Firefox the button does not appear: <code>isSupported</code> is
+				<code>false</code> and there is nothing to ask for. In Chrome you see the
+				browser's native prompt, not one built by the package.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Without the API, the fallback is not idle detection"
+		note="With the button above, Chrome starts the real detector. In Firefox, `start()` enters a degraded mode: it sets 'active', and after the threshold it sets 'idle' once and never returns. It does not see input, so it will call someone still sitting in front of the screen idle. Good enough to pause something cheap; not to bill for it."
+		code={FALLBACK_CODE}
+	>
+		<div x-data class="space-y-3">
+			<div class="flex flex-wrap gap-2">
+				<DemoButton
+					x-show="$idle.isSupported && $idle.permission === 'granted' && !$idle.isWatching"
+					x-cloak
+					data-testid="idle-start"
+					@click="await $idle.start({ threshold: 120000 })"
+					x-bind:disabled="$idle.isLoading"
+				>
+					start(2 min threshold)
+				</DemoButton>
+				<DemoButton x-show="$idle.isWatching" x-cloak @click="$idle.stop()">stop()</DemoButton>
+			</div>
+
+			<Alert variant="warning" x-show="$idle.isIdle" x-cloak>
+				User is idle — pause expensive work.
+			</Alert>
+
+			<p class="text-sm">
+				watching: <strong x-text="$idle.isWatching"></strong> · user:
+				<strong x-text="$idle.userState ?? '—'"></strong> · screen:
+				<strong x-text="$idle.screenState ?? '—'"></strong> · isIdle:
+				<strong x-text="$idle.isIdle"></strong>
+			</p>
+
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				For tab visibility use
+				<code>@ailura/alpinejs-env</code> (<code>$env.visibility</code>), which is
+				available everywhere. This example's threshold is 2 minutes, so you
+				will not see the alert while reading: in the degraded mode the timer
+				cannot go back to <code>active</code>.
+			</p>
+		</div>
+	</DemoExample>
+</DemoSection>

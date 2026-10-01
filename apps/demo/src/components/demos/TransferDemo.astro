@@ -1,0 +1,194 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("transfer")!;
+
+// The package's trap, and the reason this example carries a log: share()
+// returns false in three cases you cannot tell apart — the browser does not
+// support Web Share, the payload was rejected, or the user closed the sheet.
+// That is why 'not shared' is an honest result, not a bug.
+const CLIPBOARD_CODE = `x-data="{
+  log: [],
+  seq: 0,
+  // All three magics are async and can fail. The promise is PASSED to run(),
+  // not discarded: awaited here, a failure goes out through the catch and 'ok'
+  // never gets confused with 'could not do it'. A transfer you cannot tell
+  // apart from a failure is not a transfer.
+  async run(label, promise) {
+    try {
+      const result = await promise;
+      this.report(label, result === false ? 'not shared' : 'ok', result);
+    } catch (e) {
+      this.report(label, 'failed', e instanceof Error ? e.message : String(e));
+    }
+  },
+  report(label, outcome, detail) {
+    this.log = [{ id: ++this.seq, label, outcome, detail: String(detail) },
+                ...this.log].slice(0, 5);
+  },
+}"
+
+<!-- mode: 'auto' is the default and it is the one that tries the async
+     Clipboard API and FALLS BACK to a hidden textarea + execCommand('copy').
+     'clipboard' and 'legacy' force each branch, which is what you need to test
+     them. -->
+<button @click="run('clipboard (auto)', $clipboard('Copied from alpine-transfer'))">
+  Copy text
+</button>
+<button @click="run('clipboard (clipboard only)',
+                      $clipboard('Forced async API', { mode: 'clipboard' }))">
+  Copy — async API only
+</button>
+<button @click="run('clipboard (legacy)',
+                      $clipboard('Forced textarea fallback', { mode: 'legacy' }))">
+  Copy — legacy fallback
+</button>
+
+<ul>
+  <template x-for="entry in log" :key="entry.id">
+    <li><code x-text="entry.label"></code> — <strong x-text="entry.outcome"></strong>
+        <span x-text="entry.detail"></span></li>
+  </template>
+</ul>`;
+
+// Careful with 'not shared': share() returns false whether the API is missing,
+// the payload is rejected, or the user closed the sheet. All three cases are the
+// same false, so the row can say 'not shared' on a desktop Firefox that does
+// support the API, and that is not a failure.
+const SHARE_CODE = `<!-- isSupported is read once so you do not offer a button that does
+     nothing. Careful: $share() returns false in three indistinguishable cases —
+     API missing, payload rejected, sheet closed by the user. -->
+<button
+  x-bind:disabled="!$share.isSupported"
+  @click="run('share', $share({ title: 'Alpine Transfer', text: 'Shared from the demo',
+                                url: window.location.href }))"
+>Share page</button>
+
+<button
+  x-bind:disabled="!$export.isSupported"
+  @click="run('export', $export('Hello from alpine-transfer', { filename: 'demo.txt' }))"
+>Export file</button>
+
+<!-- canShare(data) is the same criterion with a concrete payload, in case you
+     want to check whether THAT particular call will go through before offering it:
+
+       <button x-bind:disabled="!$share.canShare({ files: [file] })">…</button>
+
+     Both return Promise<boolean>; $clipboard returns Promise<void>. That is why
+     a false reads as 'not shared' and not as an exception: only $share and
+     $export can return false. -->`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-sm text-[var(--ios-label-secondary)]">
+		Three outbound capabilities behind one small surface. The reason to reach for a
+		plugin instead of <code>navigator.clipboard.writeText()</code> is the fallback:
+		<code>$clipboard</code> falls back to a hidden <code>&lt;textarea&gt;</code> +
+		<code>execCommand('copy')</code> when the async Clipboard API is missing — which is
+		exactly what happens on an insecure origin or an older Safari, where the naive call
+		simply throws. Share and export report availability so you can degrade instead of
+		offering a button that does nothing.
+	</p>
+
+	<div
+		class="space-y-4 text-sm"
+		x-data="{
+			log: [],
+			seq: 0,
+			async run(label, promise) {
+				// Every one of these three magics is async and can fail. The demo
+				// used to call them bare, so the result was discarded and a
+				// rejection surfaced as nothing at all — success and failure were
+				// indistinguishable. A transfer you cannot tell failed is not a
+				// transfer.
+				try {
+					const result = await promise;
+					this.report(label, result === false ? 'not shared' : 'ok', result);
+				} catch (e) {
+					this.report(label, 'failed', e instanceof Error ? e.message : String(e));
+				}
+			},
+			report(label, outcome, detail) {
+				this.log = [{ id: ++this.seq, label, outcome, detail: String(detail) }, ...this.log].slice(0, 5);
+			},
+		}"
+	>
+		<DemoExample
+			title="Copying text, with the fallback the browser does not give you"
+			note="Reach for this instead of navigator.clipboard.writeText() on any page a user can open over plain http: the native call throws there, and mode: 'auto' falls back to a hidden textarea + execCommand. The three buttons force each branch, so the fallback is the thing you can see, not a thing you read about."
+			open
+			code={CLIPBOARD_CODE}
+		>
+			<div class="flex flex-wrap gap-2">
+				<DemoButton
+					@click="run('clipboard (auto)', $clipboard('Copied from alpine-transfer'))"
+				>
+					Copy text
+				</DemoButton>
+				<DemoButton
+					@click="run('clipboard (clipboard only)', $clipboard('Forced async API', { mode: 'clipboard' }))"
+				>
+					Copy — async API only
+				</DemoButton>
+				<DemoButton
+					@click="run('clipboard (legacy)', $clipboard('Forced textarea fallback', { mode: 'legacy' }))"
+				>
+					Copy — legacy fallback
+				</DemoButton>
+			</div>
+
+			<div data-testid="transfer-log">
+				<ul class="list-disc list-inside space-y-1 text-sm mt-2">
+					<template x-for="entry in log" :key="entry.id">
+						<li>
+							<code x-text="entry.label"></code> — <strong x-text="entry.outcome"></strong>
+							<span class="text-[var(--ios-label-secondary)]" x-text="entry.detail"></span>
+						</li>
+					</template>
+				</ul>
+				<p
+					class="text-xs text-[var(--ios-label-secondary)] mt-1"
+					x-show="log.length === 0"
+					x-cloak
+				>
+					Nothing yet — use a button above. Each one reports what actually happened.
+				</p>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Share and export declare whether they are available"
+			note="isSupported is the point: a button that is going to do nothing should be disabled or replaced, not shipped. Reach for this over calling navigator.share() bare, which throws where it is missing."
+			code={SHARE_CODE}
+		>
+			<div class="flex flex-wrap gap-2">
+				<DemoButton
+					x-bind:disabled="!$share.isSupported"
+					@click="run('share', $share({ title: 'Alpine Transfer', text: 'Shared from the demo', url: window.location.href }))"
+				>
+					Share page
+				</DemoButton>
+				<DemoButton
+					x-bind:disabled="!$export.isSupported"
+					@click="run('export', $export('Hello from alpine-transfer', { filename: 'demo.txt' }))"
+				>
+					Export file
+				</DemoButton>
+			</div>
+
+			<ul class="text-xs text-[var(--ios-label-secondary)] list-disc pl-5 space-y-1">
+				<li>
+					Web Share: <strong x-text="$share.isSupported ? 'available' : 'unavailable'"></strong>
+					— mobile Safari and Chromium; on desktop it is Chrome/Edge only, so this reads
+					<em>unavailable</em> in desktop Firefox
+				</li>
+				<li>
+					File export: <strong x-text="$export.isSupported ? 'available' : 'unavailable'"></strong>
+				</li>
+			</ul>
+		</DemoExample>
+	</div>
+</DemoSection>

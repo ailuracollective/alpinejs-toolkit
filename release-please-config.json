@@ -1,0 +1,133 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "bump-minor-pre-major": true,
+  "separate-pull-requests": false,
+  "include-component-in-tag": true,
+  "tag-separator": "@",
+  "always-link-local": true,
+  "sequential-calls": true,
+  "packages": {
+    "packages/core": {
+      "release-type": "node"
+    },
+    "packages/ui": {
+      "release-type": "node"
+    },
+    "packages/state-machine": {
+      "release-type": "node"
+    },
+    "packages/env": {
+      "release-type": "node"
+    },
+    "packages/media": {
+      "release-type": "node"
+    },
+    "packages/notify": {
+      "release-type": "node"
+    },
+    "packages/selection": {
+      "release-type": "node"
+    },
+    "packages/collection": {
+      "release-type": "node"
+    },
+    "packages/child": {
+      "release-type": "node"
+    },
+    "packages/scroll": {
+      "release-type": "node"
+    },
+    "packages/calendar": {
+      "release-type": "node"
+    },
+    "packages/form": {
+      "release-type": "node"
+    },
+    "packages/gesture": {
+      "release-type": "node"
+    },
+    "packages/keyboard": {
+      "release-type": "node"
+    },
+    "packages/history": {
+      "release-type": "node"
+    },
+    "packages/timer": {
+      "release-type": "node"
+    },
+    "packages/toast": {
+      "release-type": "node"
+    },
+    "packages/transfer": {
+      "release-type": "node"
+    },
+    "packages/permissions": {
+      "release-type": "node"
+    },
+    "packages/geo": {
+      "release-type": "node"
+    },
+    "packages/lang": {
+      "release-type": "node"
+    },
+    "packages/accordion": {
+      "release-type": "node"
+    },
+    "packages/tabs": {
+      "release-type": "node"
+    },
+    "packages/dialog": {
+      "release-type": "node"
+    },
+    "packages/menu": {
+      "release-type": "node"
+    },
+    "packages/tooltip": {
+      "release-type": "node"
+    },
+    "packages/overlay": {
+      "release-type": "node"
+    },
+    "packages/attention": {
+      "release-type": "node"
+    },
+    "packages/theme": {
+      "release-type": "node"
+    },
+    "packages/sidebar": {
+      "release-type": "node"
+    },
+    "packages/carousel": {
+      "release-type": "node"
+    },
+    "packages/command": {
+      "release-type": "node"
+    },
+    "packages/virtual": {
+      "release-type": "node"
+    },
+    "packages/query": {
+      "release-type": "node"
+    },
+    "packages/query-adapter-alpine": {
+      "release-type": "node"
+    },
+    "packages/query-adapter-zustand": {
+      "release-type": "node"
+    },
+    "packages/query-adapter-nanostores": {
+      "release-type": "node"
+    },
+    "packages/json-api": {
+      "release-type": "node"
+    }
+  },
+  "plugins": [
+    {
+      "type": "node-workspace",
+      "merge": false,
+      "updatePeerDependencies": true
+    }
+  ]
+}

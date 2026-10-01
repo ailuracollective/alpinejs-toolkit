@@ -1,0 +1,169 @@
+---
+import { calendarDayButtonClass } from "../../lib/button-styles";
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("calendar")!;
+
+// The page's Alpine state lives in `src/demo/calendar-demo.ts` as an
+// `Alpine.data` component, so each sample is the markup that mounts it.
+
+const GRID_CODE = `<div x-data="calendarDemo">
+  <!-- The headers come from the package, in the SAME column order as the
+       cells: the grid runs Sunday to Saturday. Typing "Mo"… by hand shifts
+       every column by one day and the calendar still looks correct. -->
+  <div class="grid grid-cols-7">
+    <template x-for="label in weekdayLabels" :key="label">
+      <span class="text-center text-xs" x-text="label"></span>
+    </template>
+  </div>
+
+  <div class="grid grid-cols-7">
+    <!-- cells = $store.calendar.weeks.flat(), flattened for x-for.
+         Every predicate was computed by CalendarController: there is no
+         isToday / isInRange / isRangeStart reimplemented here. -->
+    <template x-for="cell in cells" :key="cell.key">
+      <button
+        :disabled="cell.isDisabled"
+        :aria-pressed="cell.isSelected"
+        :class="cell.isCurrentMonth ? '' : 'opacity-40'"
+        @click="pick(cell)"
+        x-text="cell.day"
+      ></button>
+    </template>
+  </div>
+</div>`;
+
+const NAV_CODE = `<!-- Four different calls over the same visible month. None of them
+     touches the selection, so you can go back to the month you had with the
+     date still selected. -->
+<DemoButton @click="store.prevMonth()">Previous</DemoButton>
+<strong x-text="monthLabel"></strong>
+<DemoButton @click="store.nextMonth()">Next</DemoButton>
+<DemoButton @click="store.goToToday()">Today</DemoButton>
+
+<!-- A two-month jump: goToMonth() normalises to the 1st of the month, so
+     whatever day you pass it is discarded. -->
+<DemoButton variant="secondary" @click="jumpNextMonth()">Jump +2</DemoButton>
+
+<p>Visible month: <code x-text="store.month.toDateString()"></code> · the two-month
+   jump uses <code>goToMonth()</code>, not <code>nextMonth()</code> twice.</p>
+
+<!-- monthLabel is a host Intl, not the package's: CalendarController does not
+     format months, it only produces the dates. -->`;
+
+const SELECTION_CODE = `<!-- selected is ONE value, and its shape depends on the mode the
+     controller was built with:
+       single   → Date
+       multiple → Date[]
+       range    → { from, to }     ('to' stays undefined until the 2nd click)
+     That is why the example reads the formatted value instead of a field that
+     only exists in one mode. -->
+<p class="font-mono" data-testid="calendar-selected" x-text="selectionLabel"></p>
+
+<!-- isSelected() takes a loose date: the same check the cell does, for when you
+     paint from outside the grid. -->
+<p>isSelected(1st): <span x-text="String(store.isSelected(store.month))"></span></p>
+
+<!-- clear() sets selected to null and emits clear + select. -->
+<DemoButton @click="clear()">clear()</DemoButton>
+
+<!-- mode does come from the store, and it is what says what the above looks like. -->
+<code x-text="$store.calendar.mode"></code>`;
+// ──
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="The 42 cells are computed by the package, not the page"
+		note="This grid looks like your own markup and is not: `weeks` comes from CalendarController, and with it the eight predicates for each day. If the package disappeared, this would draw nothing — and the headers would no longer line up with the column order either, because the grid runs Sunday to Saturday."
+		open
+		code={GRID_CODE}
+	>
+		<div x-data="calendarDemo" class="space-y-3" data-testid="calendar-grid">
+			<div class="grid grid-cols-7 gap-1">
+				<template x-for="label in weekdayLabels" :key="label">
+					<span class="py-1 text-center text-xs font-semibold text-[var(--ios-label-secondary)]" x-text="label"></span>
+				</template>
+			</div>
+
+			<div class="grid grid-cols-7 gap-1">
+				<template x-for="cell in cells" :key="cell.key">
+					<DemoButton
+						type="button"
+						variant="ghost"
+						size="icon"
+						class={calendarDayButtonClass}
+						x-bind:disabled="cell.isDisabled"
+						x-bind:aria-pressed="cell.isSelected"
+						x-bind:class="{
+							'opacity-40': !cell.isCurrentMonth,
+							'ring-2 ring-[var(--ios-blue)]/60': cell.isToday && !cell.isSelected,
+							// In `range` mode the package fills in these three. The playground
+							// registers the store in `single` mode, so you never see them
+							// here: with calendarPlugin({ mode: 'range' }) the row paints itself.
+							'bg-[var(--ios-blue)]/15 text-[var(--ios-label)]': cell.isInRange,
+							'bg-[var(--ios-blue)] text-white hover:bg-[var(--ios-blue)]/80': cell.isRangeStart || cell.isRangeEnd,
+							'bg-[var(--ios-blue)] text-white hover:bg-[var(--ios-blue)]/80': cell.isSelected && !cell.isRangeStart && !cell.isRangeEnd,
+						}"
+						@click="pick(cell)"
+						x-text="cell.day"
+					/>
+				</template>
+			</div>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Navigating moves the visible month, not the state"
+		note="Four calls that only change which month gets drawn. None of them touches the selection, so you can go back to the month you had with the date still selected."
+		code={NAV_CODE}
+	>
+		<div x-data="calendarDemo" class="space-y-3">
+			<div class="flex flex-wrap items-center gap-2">
+				<DemoButton @click="store.prevMonth()">Previous</DemoButton>
+				<strong class="min-w-40 text-center" x-text="monthLabel"></strong>
+				<DemoButton @click="store.nextMonth()">Next</DemoButton>
+				<DemoButton @click="store.goToToday()">Today</DemoButton>
+				<DemoButton variant="secondary" @click="jumpNextMonth()">Jump +2</DemoButton>
+			</div>
+			<p class="text-sm text-[var(--ios-label-secondary)]">
+				Visible month: <code x-text="store.month.toDateString()"></code> · the two-month
+				jump uses <code>goToMonth()</code>, not <code>nextMonth()</code> twice.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="The selection is one value, and the mode fixes its shape"
+		note="Here the store is in `single`, so the value is a `Date`. Registered with `mode: 'range'` it would be `{ from, to }`, and with `mode: 'multiple'` an array — which is why the example reads the raw value instead of a field that only exists in one mode."
+		code={SELECTION_CODE}
+	>
+		<div x-data="calendarDemo" class="space-y-3">
+			<div class="grid gap-2 text-xs sm:grid-cols-3">
+				<div class="rounded-md border border-[var(--ios-separator)] p-2">
+					<p class="text-[var(--ios-label-tertiary)]">selected</p>
+					<p class="font-mono" data-testid="calendar-selected" x-text="selectionLabel">—</p>
+				</div>
+				<div class="rounded-md border border-[var(--ios-separator)] p-2">
+					<p class="text-[var(--ios-label-tertiary)]">isSelected(1st of month)</p>
+					<p class="font-mono" x-text="String(store.isSelected(store.month))">—</p>
+				</div>
+				<div class="rounded-md border border-[var(--ios-separator)] p-2">
+					<p class="text-[var(--ios-label-tertiary)]">mode</p>
+					<p class="font-mono" x-text="$store.calendar.mode">—</p>
+				</div>
+			</div>
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="store.goToToday()">goToToday()</DemoButton>
+				<DemoButton variant="ghost" @click="clear()">clear()</DemoButton>
+			</div>
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				<code>formatMonth()</code> exists on the controller but does not reach the store:
+				the label above is a host <code>Intl</code>, not the package's.
+			</p>
+		</div>
+	</DemoExample>
+</DemoSection>

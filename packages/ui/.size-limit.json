@@ -1,0 +1,47 @@
+[
+  {
+    "name": "ui barrel",
+    "path": "dist/index.mjs",
+    "import": "*",
+    "limit": "780 B",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "ui ./storage",
+    "path": "dist/storage.mjs",
+    "import": "*",
+    "limit": "550 B",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "ui ./portal",
+    "path": "dist/portal.mjs",
+    "import": "*",
+    "limit": "320 B",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "ui ./media",
+    "path": "dist/media.mjs",
+    "import": "*",
+    "limit": "250 B",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core"],
+    "gzip": true,
+    "brotli": true
+  },
+  {
+    "name": "ui ./types",
+    "path": "dist/types.mjs",
+    "import": "*",
+    "limit": "50 B",
+    "ignore": ["alpinejs", "@ailura/alpinejs-core"],
+    "gzip": true,
+    "brotli": true
+  }
+]

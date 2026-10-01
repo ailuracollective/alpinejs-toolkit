@@ -1,0 +1,192 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import Kbd from "../astro/Kbd.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("sidebar")!;
+
+const STATE_CODE = `<!-- Everything the package exposes is this one store. -->
+<ul>
+  <li>Visible: <strong x-text="$store.sidebar.visible"></strong></li>
+  <li>matchesBreakpoint: <strong x-text="$store.sidebar.matchesBreakpoint"></strong></li>
+  <li>hasOverlay: <strong x-text="$store.sidebar.hasOverlay"></strong></li>
+</ul>
+
+<button @click="$store.sidebar.show()">show()</button>
+<button @click="$store.sidebar.hide()">hide()</button>
+<button @click="$store.sidebar.toggle()">toggle()</button>
+
+<!-- Not a single line of keyboard handling. With closeOnEscape (the default)
+     the plugin installs its own keydown listener on document when it mounts, so
+     Escape closes from anywhere on the page.
+
+     And careful: do not write $store.sidebar.visible = true. In Alpine's store,
+     visible is a mirrored field that sync() overwrites; only
+     show()/hide()/toggle() reach the controller. -->`;
+
+const DRAWER_CODE = `<!-- The overlay is not a second boolean: it is derived.
+     hasOverlay = visible && closeOnOverlayClick, so setting
+     closeOnOverlayClick:false turns it off for good, even with the
+     drawer open on top of the content. -->
+<div x-show="$store.sidebar.hasOverlay" x-cloak
+     class="fixed inset-0 bg-black/40"
+     @click="$store.sidebar.hide()"></div>
+
+<button @click="$store.sidebar.toggle()"
+        :aria-expanded="$store.sidebar.isVisible"
+        aria-controls="demo-drawer">Menu</button>
+
+<aside id="demo-drawer"
+       x-show="$store.sidebar.isVisible" x-cloak
+       class="fixed inset-y-0 left-0 z-10 w-64 border-r bg-[var(--ios-bg-elevated)] p-4">
+  <h3 class="font-semibold">Drawer</h3>
+  <!-- No @keydown and no x-trap: the package does not manage focus. Move it
+       yourself on open and return it to the trigger on close. -->
+  <nav>…</nav>
+</aside>
+
+<!-- The plugin is registered with whatever query suits you:
+     sidebar({ breakpoint: { query: '(max-width: 1023px)', onMismatch: 'hide' } })
+     onMismatch is REQUIRED inside the object: there is no default.
+     And matchesBreakpoint stays false forever if you omit
+     breakpoint — there is no default query. -->`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-sm text-[var(--ios-label-secondary)] text-pretty">
+		The smallest package in the Features layer: one boolean, one media query and
+		one key. The drawer, its transition and its focus trap are still your
+		markup — what this saves you is the state and the <code>Escape</code>.
+	</p>
+
+	<!--
+		This whole page only works below 1024px, and the reason is the package's own
+		registration: `breakpoint: { query: '(max-width: 1023px)', onMismatch: 'hide' }`.
+		At desktop width `matchesBreakpoint` is false forever, `onMismatch: 'hide'`
+		has already run, and the two examples below show a drawer pinned under a
+		desktop sidebar that will never be toggled — a reader resizes nothing and
+		concludes the package is broken.
+
+		So the gate is `$store.media.breakpoint !== 'desktop'`, which is the
+		playground's own `media` intervals (mobile 0 / tablet 768 / desktop 1024)
+		and not a Tailwind name. It is read from `media` rather than from
+		`sidebar.matchesBreakpoint` on purpose: `matchesBreakpoint` is what the
+		package reports about ITS query, and gating on it would make the gate
+		disappear in exactly the case the reader needs to be told about.
+	-->
+	<div
+		x-show="$store.media.breakpoint !== 'desktop'"
+		x-cloak
+		data-testid="sidebar-small-screen-only"
+	>
+		<DemoExample
+			title="Escape closes without a single @keydown in your markup"
+			note="Reach for it as soon as 'open or closed?' stops being a trivial state: the store also ships hasOverlay, so the overlay is not a second boolean that drifts out of sync."
+			open
+			code={STATE_CODE}
+		>
+		<ul class="list-disc list-inside space-y-1 text-sm" data-testid="sidebar-state">
+			<li>Visible: <strong x-text="$store.sidebar.visible"></strong></li>
+			<li>matchesBreakpoint: <strong x-text="$store.sidebar.matchesBreakpoint"></strong></li>
+			<li>hasOverlay: <strong x-text="$store.sidebar.hasOverlay"></strong></li>
+			<li>Breakpoint (<code>@ailura/alpinejs-media</code>): <strong x-text="$store.media.breakpoint"></strong></li>
+		</ul>
+
+		<div class="flex flex-wrap gap-2 mt-3">
+			<DemoButton @click="$store.sidebar.show()">show()</DemoButton>
+			<DemoButton @click="$store.sidebar.hide()">hide()</DemoButton>
+			<DemoButton @click="$store.sidebar.toggle()">toggle()</DemoButton>
+		</div>
+
+		<p class="text-sm text-[var(--ios-label-secondary)] mt-3">
+			Open the playground drawer and press <Kbd>Esc</Kbd>: it closes through the listener
+			the plugin installs on <code>document</code> when it mounts. The playground's
+			<code>breakpoint</code> is <code>(max-width: 1023px)</code> with
+			<code>onMismatch: 'hide'</code>, so going from mobile to desktop closes the drawer
+			on its own. The <code>Breakpoint</code> line above comes from
+			<code>@ailura/alpinejs-media</code>, a different package — this one does not use it.
+		</p>
+		</DemoExample>
+
+		<DemoExample
+			title="The drawer and its overlay: hasOverlay is derived state"
+			note="No computed aria-*, no focus trap, no scroll lock. All of that is markup — but aria-expanded comes free if you read it from isVisible."
+			code={DRAWER_CODE}
+		>
+		<div>
+			<DemoButton @click="$store.sidebar.toggle()" :aria-expanded="$store.sidebar.isVisible" aria-controls="demo-drawer">
+				Toggle the demo drawer
+			</DemoButton>
+			<span class="ml-2 text-xs text-[var(--ios-label-secondary)]">
+				hasOverlay: <strong x-text="$store.sidebar.hasOverlay"></strong> · visible:
+				<strong x-text="$store.sidebar.isVisible"></strong>
+			</span>
+		</div>
+
+		<div
+			x-show="$store.sidebar.hasOverlay" x-cloak
+			class="fixed inset-0 bg-black/40"
+			@click="$store.sidebar.hide()"
+		></div>
+
+		<aside
+			id="demo-drawer"
+			x-show="$store.sidebar.isVisible" x-cloak
+			class="fixed inset-y-0 left-0 z-10 w-64 overflow-auto border-r bg-[var(--ios-bg-elevated)] p-4 shadow-2xl"
+		>
+			<div class="flex items-center justify-between">
+				<h3 class="font-semibold">Demo drawer</h3>
+				<DemoButton size="sm" variant="ghost" @click="$store.sidebar.hide()">Close</DemoButton>
+			</div>
+			<div class="mt-3 grid gap-1 text-sm text-[var(--ios-label-secondary)]">
+				<p class="rounded-md bg-[var(--ios-fill-quaternary)] px-2 py-1.5">Overview</p>
+				<p class="rounded-md px-2 py-1.5">Components</p>
+				<p class="rounded-md px-2 py-1.5">Patterns</p>
+			</div>
+			<p class="mt-3 text-xs text-[var(--ios-label-tertiary)]">
+				This drawer IS the playground's <code>$store.sidebar</code> — not a copy. Press
+				<Kbd>Esc</Kbd>, click the overlay, or use the buttons.
+			</p>
+		</aside>
+		</DemoExample>
+	</div>
+
+	<!--
+		The desktop half. `x-show` rather than `hidden` so the two branches are
+		mutually exclusive in the DOM rather than merely in paint: a reader with
+		the window at 1200px sees the explanation, and one at 600px sees the
+		demos, with neither able to scroll the other into view by accident.
+	-->
+	<div
+		x-show="$store.media.breakpoint === 'desktop'"
+		x-cloak
+		data-testid="sidebar-needs-small-screen"
+		class="rounded-lg border border-border bg-[var(--ios-fill-quaternary)] p-4"
+	>
+		<h4 class="text-sm font-medium">This demo needs a small screen</h4>
+		<p class="mt-2 text-xs text-[var(--ios-label-secondary)] text-pretty">
+			The playground registers the package with
+			<code>breakpoint: &#123; query: '(max-width: 1023px)', onMismatch: 'hide' &#125;</code>,
+			and right now <strong x-text="$store.media.width"></strong>px wide
+			(<code x-text="$store.media.breakpoint"></code>) does not satisfy that query. That is why
+			<code>$store.sidebar.matchesBreakpoint</code> is <code>false</code> and
+			<code>onMismatch: 'hide'</code> has already closed the drawer: there is nothing to open here.
+		</p>
+		<p class="mt-2 text-xs text-[var(--ios-label-secondary)] text-pretty">
+			Narrow the window below 1024px — or use the DevTools device toolbar with a
+			phone in landscape — and the two examples above appear on their own, with no
+			reload. The breakpoint is read from <code>@ailura/alpinejs-media</code>, which this
+			registration defines as <code>mobile</code>/<code>tablet</code>/<code>desktop</code>:
+			those are its names, not Tailwind's.
+		</p>
+		<div class="mt-3 flex flex-wrap items-center gap-2">
+			<DemoButton size="sm" @click="$store.media.refresh()">refresh()</DemoButton>
+			<span class="text-xs text-[var(--ios-label-secondary)]">
+				Forces an immediate re-read of <code>matchMedia</code> without waiting for
+				<code>resize</code>.
+			</span>
+		</div>
+	</div>
+</DemoSection>

@@ -1,0 +1,209 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import Badge from "../astro/Badge.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("gesture")!;
+
+// The real x-data and the real directives of the surface below it.
+const GESTURES_CODE = `x-data="{
+  lastGesture: 'none',
+  panX: 0,
+  panY: 0,
+  // The handler is called with the gesture detail as its first argument and
+  // with this scope as \`this\` — the same contract as \`x-on:click="handler"\`.
+  handleTap() { this.lastGesture = 'tap' },
+  handleDoubleTap() { this.lastGesture = 'doubletap' },
+  handleLongPress() { this.lastGesture = 'longpress' },
+  handleSwipe(d) { this.lastGesture = 'swipe ' + d.direction },
+  handlePan(d) {
+    this.panX = d.distanceX
+    this.panY = d.distanceY
+    this.lastGesture = d.phase === 'end' ? 'pan end' : 'pan ' + d.phase
+  },
+}"
+
+// touch-none is load-bearing, not decoration: without it the browser claims
+// the pointer for its own pan/zoom and the recogniser never sees the drag.
+<div
+  x-gesture.tap="handleTap"
+  x-gesture.doubletap="handleDoubleTap"
+  x-gesture.longpress="handleLongPress"
+  x-gesture.swipe="handleSwipe"
+  x-gesture.pan="handlePan"
+  class="flex h-40 touch-none select-none items-center justify-center"
+>
+  Interact here
+</div>
+
+<span x-text="lastGesture"></span>
+
+// Two things that bite before you wire these up:
+//
+// · \`pan\` and \`swipe\` are NOT alternatives on the same drag. A fast long
+//   flick clears the pan threshold on the way and the swipe threshold on
+//   release, so one drag emits pan (start/move/end) and then swipe — and
+//   lastGesture ends on 'swipe up' rather than 'pan end'.
+// · a second tap is emitted as \`doubletap\` and NOT as a second \`tap\`, so
+//   handleTap runs once for a double tap, not twice.
+//
+// GestureOptions.preventDefault is declared but never read: no pointer event is
+// cancelled for you, so nothing here calls preventDefault.`;
+
+const PINCH_CODE = `x-data="{
+  lastGesture: 'none',
+  pinchScale: 1,
+  pinchOrigin: 1,
+  handlePinch(d) {
+    // d.phase is 'start' | 'move' | 'end'. The controller resets scale back to
+    // 1 when the last finger lifts, so without a value committed here the zoom
+    // could never accumulate across two pinches.
+    if (d.phase === 'end') {
+      this.pinchOrigin = this.pinchScale
+      this.lastGesture = 'pinch end'
+      return
+    }
+    const scale = d.scale ?? 1
+    this.pinchScale = Math.min(3, Math.max(0.5, this.pinchOrigin * scale))
+    this.lastGesture = scale > 1 ? 'pinch zoom in' : scale < 1 ? 'pinch zoom out' : 'pinch start'
+  },
+}"
+
+<div x-gesture.pinch="handlePinch" class="flex h-40 touch-none select-none overflow-hidden">
+  <div :style="'transform: scale(' + pinchScale + ')'">
+    ×<span x-text="pinchScale.toFixed(2)"></span>
+  </div>
+</div>
+
+// \`$store.gesture\` mirrors whichever surface is being touched right now, so a
+// second surface on the same page does not fight this one for it.
+$store.gesture.active         // true while a pointer is down
+$store.gesture.kind           // 'pinch'
+$store.gesture.pointerCount   // 2
+$store.gesture.scale
+$store.gesture.cancel();      // aborts the interaction in progress`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="One surface, five gestures — and they are not exclusive"
+		note="Each `x-gesture.<kind>` is one binding on one element, and several can share it: they all land on the same per-element recognizer, so binding five costs five attributes, not five controllers. Reach for this instead of raw `pointerdown`/`pointermove` when you want tap-vs-drag-vs-flick resolved for you."
+		open
+		code={GESTURES_CODE}
+	>
+		<div
+			x-data="{
+				lastGesture: 'none',
+				panX: 0,
+				panY: 0,
+				handleTap() { this.lastGesture = 'tap' },
+				handleDoubleTap() { this.lastGesture = 'doubletap' },
+				handleLongPress() { this.lastGesture = 'longpress' },
+				handleSwipe(d) { this.lastGesture = 'swipe ' + d.direction },
+				handlePan(d) {
+					this.panX = d.distanceX
+					this.panY = d.distanceY
+					this.lastGesture = d.phase === 'end' ? 'pan end' : 'pan ' + d.phase
+				},
+			}"
+			class="rounded-lg border bg-[var(--ios-bg-secondary)] p-6"
+			data-testid="gesture-surface"
+		>
+			<p class="text-sm font-medium mb-4">
+				Each box is its own surface. Try a tap, a double tap, a long press, a
+				swipe, or a drag on the first one.
+			</p>
+
+			<div
+				x-gesture.tap="handleTap"
+				x-gesture.doubletap="handleDoubleTap"
+				x-gesture.longpress="handleLongPress"
+				x-gesture.swipe="handleSwipe"
+				x-gesture.pan="handlePan"
+				class="flex h-40 touch-none select-none items-center justify-center rounded-md border-2 border-dashed text-center text-sm text-[var(--ios-label-secondary)]"
+			>
+				Interact here
+			</div>
+
+			<div class="mt-3 flex flex-wrap items-center gap-2">
+				<span class="text-sm">Last:</span>
+				<Badge
+					variant="outline"
+					x-text="lastGesture"
+				></Badge>
+				<template x-if="lastGesture.startsWith('pan ')">
+					<span class="text-xs text-[var(--ios-label-secondary)] flex flex-col gap-0.5">
+						<span>dx=<span x-text="panX.toFixed(1)"></span></span>
+						<span>dy=<span x-text="panY.toFixed(1)"></span></span>
+					</span>
+				</template>
+			</div>
+
+			<p class="mt-3 text-xs text-[var(--ios-label-secondary)]">
+				<code>pan</code> and <code>swipe</code> are not alternatives: a fast long flick
+				clears the pan threshold on the way and the swipe threshold on release, so one
+				drag fires both and the badge above ends on <code>swipe …</code>. And a second
+				tap is emitted as <code>doubletap</code>, not as a second <code>tap</code> — a
+				<code>tap</code> handler runs once for a double tap.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Pinch scales from the value committed at the previous pinch end"
+		note="The recognizer hands you a `scale` relative to the current gesture, and resets it to 1 on release — the accumulated zoom is yours to keep. The trailing readout is `$store.gesture`, which is how you show gesture state outside the surface that is being touched."
+		code={PINCH_CODE}
+	>
+		<div
+			x-data="{
+				lastGesture: 'none',
+				pinchScale: 1,
+				pinchOrigin: 1,
+				handlePinch(d) {
+					if (d.phase === 'end') {
+						this.pinchOrigin = this.pinchScale
+						this.lastGesture = 'pinch end'
+						return
+					}
+					const scale = d.scale ?? 1
+					this.pinchScale = Math.min(3, Math.max(0.5, this.pinchOrigin * scale))
+					this.lastGesture = scale > 1 ? 'pinch zoom in' : scale < 1 ? 'pinch zoom out' : 'pinch start'
+				}
+			}"
+			class="rounded-lg border bg-[var(--ios-bg-secondary)] p-6"
+		>
+			<p class="text-sm font-medium mb-4">
+				Now the second surface: two fingers to zoom, and a second finger's
+				down/up keeps the store pointed at this one.
+			</p>
+			<div
+				x-gesture.pinch="handlePinch"
+				class="flex h-40 touch-none select-none items-center justify-center overflow-hidden rounded-md border-2 border-dashed"
+			>
+				<div
+					class="flex h-24 w-24 items-center justify-center rounded-md border bg-[var(--ios-fill-quaternary)] text-xs text-[var(--ios-label-secondary)]"
+					:style="'transform: scale(' + pinchScale + ')'"
+				>
+					<span x-text="'×' + pinchScale.toFixed(2)"></span>
+				</div>
+			</div>
+
+			<div class="mt-3 flex flex-wrap items-center gap-2">
+				<span class="text-sm">Last:</span>
+				<Badge
+					variant="outline"
+					x-text="lastGesture"
+				></Badge>
+			</div>
+
+			<p class="mt-3 text-xs text-[var(--ios-label-secondary)]">
+				<code>$store.gesture</code> follows the surface in use: active
+				<span x-text="$store.gesture.active"></span>, kind
+				<span x-text="$store.gesture.kind"></span>, fingers
+				<span x-text="$store.gesture.pointerCount"></span>, scale
+				<span x-text="$store.gesture.scale.toFixed(2)"></span>.
+			</p>
+		</div>
+	</DemoExample>
+</DemoSection>

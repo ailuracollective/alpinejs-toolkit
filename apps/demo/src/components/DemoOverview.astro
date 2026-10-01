@@ -1,0 +1,86 @@
+---
+import { PACKAGE_CATEGORIES } from "../catalog/index.js";
+import {
+  buildPlaygroundSidebarSections,
+  getPlaygroundDemoCount,
+  playgroundFamilyPath,
+} from "../catalog/playground-navigation.js";
+import PlaygroundModuleCard from "./PlaygroundModuleCard.astro";
+
+/*
+ * One ordered list, read by one loop.
+ *
+ * The page used to render two independent blocks — Families, then the layers —
+ * and the sidebar did the same in the opposite order, so the two surfaces
+ * disagreed about what a reader meets first. Both now read
+ * `buildPlaygroundSidebarSections()`, which is families only.
+ *
+ * `Runtime` leads and opens with `core`, so a reader still meets the substrate
+ * before anything built on it: dependency order now lives inside each family
+ * rather than in the top-level ordering.
+ */
+const sections = buildPlaygroundSidebarSections();
+const familyCount = sections.length;
+const demoCount = getPlaygroundDemoCount();
+const layerNames = new Map(
+  PACKAGE_CATEGORIES.map((category) => [category.id, category.title])
+);
+---
+
+<header class="mb-8 scroll-mt-20 gradient-mesh rounded-[var(--ios-radius-xl)] p-6 -mx-6 fade-in-up">
+  <p class="text-sm font-semibold tracking-wide text-[var(--ios-blue)]">Interactive demos</p>
+  <h1 class="mt-1 text-4xl font-bold tracking-tight text-balance">Playground</h1>
+  <p class="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--ios-label-secondary)] text-pretty">
+    Every plugin of the @ailura Alpine.js toolkit, live in the browser. Browse them by family — the
+    stories they tell together — or go straight into a package demo.
+  </p>
+  <dl class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+    <div class="card-hover rounded-[var(--ios-radius-lg)] bg-[var(--ios-bg-secondary)] px-4 py-3 shadow-sm shadow-black/5 dark:shadow-black/20">
+      <dt class="text-[10px] font-semibold uppercase tracking-wider text-[var(--ios-label-tertiary)]">Families</dt>
+      <dd class="mt-1 text-xl font-bold tabular-nums">{familyCount}</dd>
+    </div>
+    <div class="card-hover rounded-[var(--ios-radius-lg)] bg-[var(--ios-bg-secondary)] px-4 py-3 shadow-sm shadow-black/5 dark:shadow-black/20">
+      <dt class="text-[10px] font-semibold uppercase tracking-wider text-[var(--ios-label-tertiary)]">Package demos</dt>
+      <dd class="mt-1 text-xl font-bold tabular-nums">{demoCount}</dd>
+    </div>
+    <div class="card-hover rounded-[var(--ios-radius-lg)] bg-[var(--ios-bg-secondary)] px-4 py-3 shadow-sm shadow-black/5 dark:shadow-black/20">
+      <dt class="text-[10px] font-semibold uppercase tracking-wider text-[var(--ios-label-tertiary)]">Stack</dt>
+      <dd class="mt-1 text-sm font-bold leading-tight">Alpine · Astro</dd>
+    </div>
+  </dl>
+</header>
+
+{
+  sections.map((section) => (
+    <section aria-labelledby={`playground-${section.id}`} class="mb-10 last:mb-0">
+      <div class="mb-4 flex items-end justify-between gap-3 fade-in-up">
+        <div>
+          <p class="mb-1 text-[10px] font-semibold tracking-wider text-[var(--ios-label-tertiary)] uppercase">
+            {section.layers.map((layer) => layerNames.get(layer) ?? layer).join(" · ")}
+          </p>
+          <h2 id={`playground-${section.id}`} class="text-xl font-bold tracking-tight text-balance">
+            <a href={playgroundFamilyPath(section.id)} class="hover:text-[var(--ios-blue)]">
+              {section.title}
+            </a>
+          </h2>
+          <p class="text-sm text-[var(--ios-label-secondary)]">{section.summary}</p>
+        </div>
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {section.entries.map((entry) => (
+          <PlaygroundModuleCard
+            item={{
+              id: entry.id,
+              title: entry.title,
+              package: entry.npmPackage,
+              api: entry.api,
+              kind: entry.surface,
+              description: entry.summary,
+            }}
+          />
+        ))}
+      </div>
+    </section>
+  ))
+}

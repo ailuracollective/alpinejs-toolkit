@@ -1,0 +1,163 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+import QueryAdvancedDemo from "../QueryAdvancedDemo.astro";
+
+const plugin = getPluginNavItem("query")!;
+
+// The markup that mounts the example below, plus the four `$store.query` calls
+// its buttons make — they live in `src/demo/query-demos.ts` because the state is
+// more than two lines, so the sample shows the mount and the calls, not the
+// module.
+const CACHE_CODE = `<!-- src/demo/query-demos.ts → Alpine.data("queryDemo") -->
+<div x-data="queryDemo">
+  <button @click="load()">observe()</button>
+  <button @click="refetch()">refetch()</button>
+  <button @click="invalidate()">invalidate()</button>
+  <button @click="optimisticRename()">setData()</button>
+  <button @click="addArticle()">mutate()</button>
+  <button @click="forget()">remove()</button>
+  <button @click="toggleFailure()">Fail next request</button>
+
+  <span x-text="status"></span>
+  <span x-text="fetches"></span>
+  <span x-text="isStale"></span>
+  <p x-show="error" x-cloak x-text="error" role="alert"></p>
+
+  <template x-for="article in data ?? []" :key="article.id">
+    <tr><td x-text="article.title"></td><td x-text="article.author"></td></tr>
+  </template>
+</div>
+
+// ── what the buttons do ──────────────────────────────────────────────
+const KEY = ["playground", "articles"];
+const store = $store.query; // commands only: no entry is stored here
+
+// ACTIVE read — starts the request when the entry is pending or stale, and
+// hands back a live view over the cache entry.
+const observer = store.observe(KEY, fetchArticles, { staleTime: 30_000 });
+
+// Careful: the view is a plain object of getters, NOT a reactive proxy. Reading
+// observer.data straight from the template would never re-render, so copy the
+// fields you render into your own state — that is what sync() below does.
+this.sync(observer);
+
+// setData() writes the cache with no request at all: it marks the entry
+// 'success' and refreshes dataUpdatedAt, so isStale goes false.
+store.setData(KEY, (current) =>
+  current.map((a) => (a.id === 1 ? { ...a, title: "Headless Alpine ✏️" } : a))
+);
+
+// mutate() writes nothing by itself. It returns a state object, and setData()
+// is how the result gets into the cache.
+const mutation = store.mutate({ mutationFn: (article) => api.create(article) });
+const created = await mutation.mutate({ title: "Added from a mutation" });
+store.setData(KEY, (current) => [...(current ?? []), created]);`;
+
+const RETRY_CODE = `<!-- src/demo/query-demos.ts → Alpine.data("queryRetryDemo") -->
+<div x-data="queryRetryDemo">
+  <button @click="run()" x-bind:disabled="status === 'pending'">Run</button>
+  <button @click="reset()">Reset</button>
+  <p x-show="status === 'success'" x-cloak>
+    Succeeded after <span x-text="data?.attempts"></span> attempts
+  </p>
+</div>
+
+// The option is the third argument. Attempts 1 and 2 reject, attempt 3
+// resolves, and the controller reports the success — so \`retry\` is the count of
+// EXTRA attempts after the first failure, not the number of attempts:
+// retry: 2 means three requests in all. Each one waits a flat second, with no
+// backoff, which is why Run takes a couple of seconds.
+let attempt = 0;
+const observer = $store.query.observe(
+  ["playground", "retry"],
+  async () => {
+    attempt++;
+    if (attempt < 3) throw new Error(\`Attempt \${attempt} rejected\`);
+    return { ok: true, attempts: attempt };
+  },
+  { retry: 2 }
+);
+await waitForRetrySettled(observer); // poll isPending: the retry is backgrounded
+this.data = observer.data;`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="$store.query is a command surface — and the entry it returns is not reactive"
+		note="Nothing on the store is a value you can render: it is a set of commands, and the status, data and flags live on the entry each call returns. That entry is a plain object of getters, so this example copies what it renders into its own state after every await — which is the wiring a plain $store and two booleans do not give you."
+		open
+		code={CACHE_CODE}
+	>
+		<div x-data="queryDemo" class="space-y-4" data-testid="query-articles">
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="load()">observe()</DemoButton>
+				<DemoButton @click="refetch()">refetch()</DemoButton>
+				<DemoButton @click="invalidate()">invalidate()</DemoButton>
+				<DemoButton @click="optimisticRename()">setData()</DemoButton>
+				<DemoButton @click="addArticle()">mutate()</DemoButton>
+				<DemoButton variant="ghost" @click="forget()">remove()</DemoButton>
+				<DemoButton
+					variant="destructive"
+					@click="toggleFailure()"
+					x-bind:data-active="failNext ? 'true' : null"
+				>
+					Fail next request
+				</DemoButton>
+			</div>
+
+			<div class="flex flex-wrap items-center gap-3 text-xs text-[var(--ios-label-secondary)]">
+				<span>status: <strong x-text="status"></strong></span>
+				<span>requests: <strong x-text="fetches"></strong></span>
+				<span>stale: <strong x-text="isStale"></strong></span>
+				<span>
+					updated:
+					<strong x-text="updatedAt ? new Date(updatedAt).toLocaleTimeString() : '—'"></strong>
+				</span>
+			</div>
+
+			<p class="text-sm text-[var(--ios-red)]" x-show="error" x-cloak x-text="error" role="alert"></p>
+
+			<div class="overflow-hidden rounded-lg border border-[var(--ios-separator)]">
+				<p class="border-b border-[var(--ios-separator)] bg-[var(--ios-fill-quaternary)] px-3 py-2 text-xs text-[var(--ios-label-secondary)]" x-show="status === 'pending'" x-cloak aria-live="polite">
+					Fetching…
+				</p>
+				<table class="w-full text-left text-sm">
+					<thead class="text-[10px] tracking-wider text-[var(--ios-label-tertiary)] uppercase">
+						<tr class="border-b border-[var(--ios-separator)]">
+							<th scope="col" class="h-9 px-3 font-semibold">#</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Title</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Author</th>
+							<th scope="col" class="h-9 px-3 text-right font-semibold">Price</th>
+						</tr>
+					</thead>
+					<tbody>
+						<template x-for="article in data ?? []" :key="article.id">
+							<tr class="border-b border-[var(--ios-separator)] last:border-0">
+								<td class="p-2.5 tabular-nums text-[var(--ios-label-secondary)]" x-text="article.id"></td>
+								<td class="p-2.5" x-text="article.title"></td>
+								<td class="p-2.5" x-text="article.author"></td>
+								<td class="p-2.5 text-right tabular-nums" x-text="`$${article.price}`"></td>
+							</tr>
+						</template>
+					</tbody>
+				</table>
+			</div>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="retry: 2 re-runs the query before it settles on a result"
+		note="A failing query is not an error state you have to handle: hand the controller a retry budget and it keeps the request going in the background, so the entry only reports failure once the budget is spent. Press Run twice — the second run removes the key first, because the retry budget belongs to the cache entry and a cached entry keeps the options it was created with."
+		code={RETRY_CODE}
+	>
+		<QueryAdvancedDemo />
+	</DemoExample>
+
+	<p class="text-xs text-[var(--ios-label-secondary)]">
+		Runs on <code>@ailura/alpinejs-query-adapter-alpine</code> against a local fake API, so every
+		state is reproducible.
+	</p>
+</DemoSection>

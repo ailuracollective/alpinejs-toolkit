@@ -1,0 +1,606 @@
+/* ── iOS-style Sonner toasts ── */
+
+[data-slot="sonner"],
+[data-sonner-toaster],
+[data-sonner-toaster-group] {
+	--width: 356px;
+	--gap: 14px;
+	--offset-top: 24px;
+	--offset-right: 24px;
+	--offset-bottom: 24px;
+	--offset-left: 24px;
+	--mobile-offset-top: 16px;
+	--mobile-offset-right: 16px;
+	--mobile-offset-bottom: 16px;
+	--mobile-offset-left: 16px;
+	--normal-bg: var(--popover);
+	--normal-text: var(--popover-foreground);
+	--normal-border: var(--border);
+	--border-radius: var(--ios-radius-lg);
+	--toast-close-button-start: unset;
+	--toast-close-button-end: 8px;
+	--toast-close-button-transform: translateY(-50%);
+	--toast-icon-margin-start: -3px;
+	--toast-icon-margin-end: 4px;
+	--toast-button-margin-start: auto;
+	--toast-button-margin-end: 0;
+	--toast-z-timed: 100;
+	--toast-z-persistent: 110;
+
+	/* iOS system colors — light */
+	--success-bg: var(--ios-bg-elevated);
+	--success-border: var(--ios-green);
+	--success-text: var(--ios-green);
+
+	--info-bg: var(--ios-bg-elevated);
+	--info-border: var(--ios-blue);
+	--info-text: var(--ios-blue);
+
+	--warning-bg: var(--ios-bg-elevated);
+	--warning-border: var(--ios-orange);
+	--warning-text: var(--ios-orange);
+
+	--error-bg: var(--ios-bg-elevated);
+	--error-border: var(--ios-red);
+	--error-text: var(--ios-red);
+}
+
+[data-slot="sonner"]:is(.dark *),
+[data-sonner-toaster]:is(.dark *),
+[data-sonner-toaster-group]:is(.dark *) {
+	--success-bg: var(--ios-bg-elevated);
+	--success-border: var(--ios-green);
+	--success-text: var(--ios-green);
+
+	--info-bg: var(--ios-bg-elevated);
+	--info-border: var(--ios-blue);
+	--info-text: var(--ios-blue);
+
+	--warning-bg: var(--ios-bg-elevated);
+	--warning-border: var(--ios-orange);
+	--warning-text: var(--ios-orange);
+
+	--error-bg: var(--ios-bg-elevated);
+	--error-border: var(--ios-red);
+	--error-text: var(--ios-red);
+}
+
+[data-sonner-toaster-group] {
+	position: fixed;
+	z-index: 100;
+	box-sizing: border-box;
+	display: flex;
+	gap: var(--gap);
+	padding: var(--offset-top) var(--offset-right) var(--offset-bottom) var(--offset-left);
+	margin: 0;
+	list-style-type: none;
+}
+
+[data-sonner-toaster-group][data-x-position="left"] {
+	left: 0;
+	top: 0;
+	flex-direction: column;
+}
+
+[data-sonner-toaster-group][data-x-position="right"] {
+	right: 0;
+	top: 0;
+	flex-direction: column;
+	align-items: flex-end;
+}
+
+[data-sonner-toaster-group][data-x-position="center"] {
+	left: 50%;
+	top: 0;
+	transform: translateX(-50%);
+	flex-direction: column;
+	align-items: center;
+}
+
+[data-sonner-toaster-group][data-y-position="bottom"] {
+	flex-direction: column-reverse;
+	bottom: 0;
+	top: auto;
+}
+
+[data-sonner-toaster] {
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap);
+	z-index: var(--toast-z-timed);
+	/* The toaster — not the toast — is the width container.
+	   A timed toast is `position: absolute`, so a timed stack's <ol> has no
+	   in-flow content and sized itself to ZERO, while the persistent stack's
+	   <ol> sized to its text. Two different widths meant two different origins,
+	   so a loading toast and a timed toast never lined up: they were offset
+	   from each other by the difference. Giving both <ol>s the same definite
+	   width puts them in one coordinate system, and the two stacks' toasts then
+	   share an edge instead of merely being the same size. */
+	width: var(--width);
+	max-width: var(--width);
+	align-items: stretch;
+}
+
+[data-sonner-toaster][data-stack="timed"] {
+	z-index: var(--toast-z-timed);
+}
+
+/* A loading toast differs from a timed one in exactly one way now: it paints
+   above the stack instead of in its arrival order.
+
+   The rest used to be a separate treatment — in flow, `height: auto`, and a
+   `--y` reset — and it hung off the toaster (`[data-stack="persistent"]`),
+   back when loadings and timed toasts were two sibling <ol>s. Fusing the lists
+   deleted that toaster, and with it the only thing that selected a loading
+   toast: it inherited `--y: translateY(100%)` and sat outside the viewport,
+   because the one rule that zeroes `--y` for the front toast requires
+   `data-expanded="false"` and a loading toast is expanded.
+
+   Now they share the absolute positioning model. `data-expanded="true"` pins a
+   toast at `translateY(var(--lift) * var(--offset))` with its own height, and
+   `persistentToastStyle` computes that offset from the toasts that arrived
+   earlier, so a loading sits in line instead of floating over them. */
+[data-sonner-toast][data-persistent="true"] {
+	z-index: var(--toast-z-persistent);
+}
+
+[data-sonner-toast] {
+	--y: translateY(100%);
+	--lift-amount: calc(var(--lift) * var(--gap));
+	z-index: var(--z-index);
+	position: absolute;
+	opacity: 0;
+	transform: var(--y);
+	touch-action: none;
+	transition:
+		transform 400ms ease,
+		opacity 400ms ease,
+		height 400ms ease,
+		box-shadow 200ms ease;
+	box-sizing: border-box;
+	outline: none;
+	overflow-wrap: anywhere;
+	pointer-events: auto;
+}
+
+[data-sonner-toast][data-y-position="top"] {
+	top: 0;
+	--y: translateY(-100%);
+	--lift: 1;
+	--lift-amount: calc(1 * var(--gap));
+}
+
+[data-sonner-toast][data-y-position="bottom"] {
+	bottom: 0;
+	--y: translateY(100%);
+	--lift: -1;
+	--lift-amount: calc(var(--lift) * var(--gap));
+}
+
+[data-sonner-toast][data-x-position="right"] {
+	right: 0;
+}
+
+[data-sonner-toast][data-x-position="left"] {
+	left: 0;
+}
+
+/* ── iOS-styled toast ── */
+[data-sonner-toast][data-styled="true"] {
+	display: flex;
+	width: var(--width);
+	align-items: center;
+	gap: 6px;
+	border-radius: var(--border-radius);
+	border: 1px solid var(--normal-border);
+	background: var(--normal-bg);
+	padding: 16px;
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--normal-text);
+	box-shadow:
+		0 8px 24px rgb(0 0 0 / 0.12),
+		0 2px 8px rgb(0 0 0 / 0.06);
+	backdrop-filter: blur(20px) saturate(180%);
+	-webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+[data-sonner-toast][data-mounted="true"] {
+	opacity: 1;
+}
+
+[data-sonner-toast][data-mounted="true"][data-front="true"][data-expanded="false"] {
+	--y: translateY(0);
+}
+
+/* The exit runs faster than the enter, because it has a hard deadline: the store
+   purges a removed toast 300ms after it is marked, and whatever the transition
+   has not finished by then is simply gone. At the shared 400ms the toast was
+   yanked out of the DOM two-thirds of the way through sliding, which reads as
+   the animation being cut off rather than as it being quick.
+
+   250ms leaves room for the purge to land after the transition does. Swiping is
+   excluded: that gesture is dragged by the pointer and released by physics, so
+   its timing is the pointer's, not ours. */
+[data-sonner-toast][data-removed="true"]:not([data-swipe-out="true"]) {
+	transition-duration: 250ms;
+}
+
+[data-sonner-toast][data-expanded="false"][data-front="false"] {
+	--scale: var(--toasts-before) * 0.05 + 1;
+	--y: translateY(calc(var(--lift-amount) * var(--toasts-before))) scale(calc(-1 * var(--scale)));
+	height: var(--front-toast-height);
+}
+
+[data-sonner-toast] > * {
+	transition: opacity 400ms ease;
+}
+
+[data-sonner-toast][data-expanded="false"][data-front="false"][data-styled="true"] > * {
+	opacity: 0;
+	pointer-events: none;
+}
+
+[data-sonner-toast][data-expanded="false"][data-front="false"] [data-close-button] {
+	opacity: 0;
+	pointer-events: none;
+}
+
+[data-sonner-toast][data-expanded="true"]::after {
+	content: "";
+	position: absolute;
+	left: 0;
+	bottom: 100%;
+	width: 100%;
+	height: calc(var(--gap) + 1px);
+}
+
+[data-sonner-toast][data-visible="false"] {
+	opacity: 0;
+	pointer-events: none;
+}
+
+[data-sonner-toast][data-mounted="true"][data-expanded="true"] {
+	--y: translateY(calc(var(--lift) * var(--offset)));
+	height: var(--initial-height);
+}
+
+[data-sonner-toast][data-removed="true"][data-front="true"][data-swipe-out="false"] {
+	--y: translateY(calc(var(--lift) * -100%));
+	opacity: 0;
+}
+
+[data-sonner-toast][data-removed="true"][data-front="false"][data-swipe-out="false"][data-expanded="true"] {
+	--y: translateY(calc(var(--lift) * var(--offset) + var(--lift) * -100%));
+	opacity: 0;
+}
+
+[data-sonner-toast][data-removed="true"][data-front="false"][data-swipe-out="false"][data-expanded="false"] {
+	--y: translateY(40%);
+	opacity: 0;
+	transition:
+		transform 500ms ease,
+		opacity 200ms ease;
+}
+
+[data-sonner-toast][data-swiping="true"] {
+	transform: var(--y) translateY(var(--swipe-amount-y, 0px)) translateX(var(--swipe-amount-x, 0px));
+	transition: none;
+}
+
+[data-sonner-toast][data-swipe-out="true"][data-swipe-direction="left"] {
+	animation: sonner-swipe-out-left 200ms ease-out forwards;
+}
+
+[data-sonner-toast][data-swipe-out="true"][data-swipe-direction="right"] {
+	animation: sonner-swipe-out-right 200ms ease-out forwards;
+}
+
+[data-sonner-toast][data-swipe-out="true"][data-swipe-direction="up"] {
+	animation: sonner-swipe-out-up 200ms ease-out forwards;
+}
+
+[data-sonner-toast][data-swipe-out="true"][data-swipe-direction="down"] {
+	animation: sonner-swipe-out-down 200ms ease-out forwards;
+}
+
+@keyframes sonner-swipe-out-left {
+	from {
+		transform: var(--y) translateX(var(--swipe-amount-x, 0px));
+		opacity: 1;
+	}
+
+	to {
+		transform: var(--y) translateX(calc(var(--swipe-amount-x, 0px) - 100%));
+		opacity: 0;
+	}
+}
+
+@keyframes sonner-swipe-out-right {
+	from {
+		transform: var(--y) translateX(var(--swipe-amount-x, 0px));
+		opacity: 1;
+	}
+
+	to {
+		transform: var(--y) translateX(calc(var(--swipe-amount-x, 0px) + 100%));
+		opacity: 0;
+	}
+}
+
+@keyframes sonner-swipe-out-up {
+	from {
+		transform: var(--y) translateY(var(--swipe-amount-y, 0px));
+		opacity: 1;
+	}
+
+	to {
+		transform: var(--y) translateY(calc(var(--swipe-amount-y, 0px) - 100%));
+		opacity: 0;
+	}
+}
+
+@keyframes sonner-swipe-out-down {
+	from {
+		transform: var(--y) translateY(var(--swipe-amount-y, 0px));
+		opacity: 1;
+	}
+
+	to {
+		transform: var(--y) translateY(calc(var(--swipe-amount-y, 0px) + 100%));
+		opacity: 0;
+	}
+}
+
+/* ── Toast content ── */
+[data-sonner-toast][data-styled="true"] [data-content] {
+	display: flex;
+	min-width: 0;
+	flex: 1;
+	flex-direction: column;
+	gap: 2px;
+	/* The close button is `position: absolute` at `right: 8px` and 24px wide,
+	   so it occupies the band from 8px to 32px off the right edge. The toast's
+	   own padding stops at 16px, which left the text running underneath it. The
+	   button is always visible here rather than hover-only, so that overlap is
+	   permanent instead of a surprise on hover — hence the reserve. */
+	padding-right: 16px;
+}
+
+[data-sonner-toast][data-styled="true"] [data-title] {
+	font-weight: 500;
+	line-height: 1.5;
+	color: inherit;
+}
+
+[data-sonner-toast][data-styled="true"] [data-description] {
+	font-weight: 400;
+	line-height: 1.4;
+	color: var(--muted-foreground);
+}
+
+[data-rich-colors="true"][data-sonner-toast][data-styled="true"] [data-description] {
+	color: inherit;
+	opacity: 0.85;
+}
+
+/* ── Toast icon ── */
+[data-sonner-toast][data-styled="true"] [data-icon] {
+	display: flex;
+	height: 20px;
+	width: 20px;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: center;
+	margin-left: var(--toast-icon-margin-start);
+	margin-right: var(--toast-icon-margin-end);
+}
+
+/* ── Close button ── */
+/* The X is centred on the toast's height, not pinned to its top.
+
+   `top: 0` looks right in sonner because its toasts are one line tall. These
+   are not: the toast in the screenshot is ~90px for a single line, with the icon
+   and title centred in it, so a button at `top: 0` floated well above the line
+   it belongs to and read as detached.
+
+   The file also shipped with `translate(0, -25%)`, which lifted the button 6px
+   clear of the toast entirely, into the gap between stacked toasts. Centring
+   replaces that: `top: 50%` with `translateY(-50%)` holds the button on the
+   text's line whatever the toast's height or how many lines it carries. */
+[data-sonner-toast][data-styled="true"] [data-close-button] {
+	position: absolute;
+	top: 50%;
+	transform: var(--toast-close-button-transform);
+	left: var(--toast-close-button-start);
+	right: var(--toast-close-button-end);
+	z-index: 1;
+	display: flex;
+	height: 24px;
+	width: 24px;
+	cursor: pointer;
+	align-items: center;
+	justify-content: center;
+	border-radius: 9999px;
+	border: none;
+	background: transparent;
+	padding: 0;
+	color: var(--muted-foreground);
+	transition:
+		background 150ms ease,
+		color 150ms ease,
+		opacity 100ms ease;
+}
+
+[data-sonner-toast][data-styled="true"] [data-close-button]:hover {
+	background: var(--muted);
+	color: var(--foreground);
+}
+
+/* The button is always visible, so it has to be reachable and visible by
+   keyboard too — the file had no focus style for it at all. */
+[data-sonner-toast][data-styled="true"] [data-close-button]:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+
+/* ── Action buttons ── */
+[data-sonner-toast][data-styled="true"] [data-button] {
+	margin-left: var(--toast-button-margin-start);
+	margin-right: var(--toast-button-margin-end);
+	display: flex;
+	height: 28px;
+	flex-shrink: 0;
+	cursor: pointer;
+	align-items: center;
+	border-radius: var(--ios-radius-sm);
+	border: none;
+	background: var(--ios-blue);
+	padding-inline: 12px;
+	font-size: 13px;
+	font-weight: 600;
+	color: #FFFFFF;
+	outline: none;
+	transition:
+		opacity 150ms ease,
+		transform 150ms ease;
+}
+
+[data-sonner-toast][data-styled="true"] [data-button]:active {
+	transform: scale(0.97);
+	opacity: 0.85;
+}
+
+[data-sonner-toast][data-styled="true"] [data-button][data-cancel] {
+	background: var(--muted);
+	color: var(--foreground);
+}
+
+[data-sonner-toast][data-styled="true"] [data-action] [data-button] {
+	background: var(--ios-blue);
+	color: #FFFFFF;
+}
+
+/* ── Rich color variants ── */
+[data-rich-colors="true"][data-sonner-toast][data-styled="true"][data-type="success"] {
+	border-color: color-mix(in srgb, var(--success-text) 25%, transparent);
+	background: var(--success-bg);
+	color: var(--success-text);
+	box-shadow:
+		0 8px 24px rgb(0 0 0 / 0.12),
+		0 2px 8px rgb(0 0 0 / 0.06),
+		inset 0 1px 0 color-mix(in srgb, var(--success-text) 8%, transparent);
+}
+
+[data-rich-colors="true"][data-sonner-toast][data-styled="true"][data-type="success"] [data-close-button] {
+	border-color: transparent;
+	background: transparent;
+	color: var(--success-text);
+}
+
+[data-rich-colors="true"][data-sonner-toast][data-styled="true"][data-type="info"] {
+	border-color: color-mix(in srgb, var(--info-text) 25%, transparent);
+	background: var(--info-bg);
+	color: var(--info-text);
+	box-shadow:
+		0 8px 24px rgb(0 0 0 / 0.12),
+		0 2px 8px rgb(0 0 0 / 0.06),
+		inset 0 1px 0 color-mix(in srgb, var(--info-text) 8%, transparent);
+}
+
+[data-rich-colors="true"][data-sonner-toast][data-styled="true"][data-type="info"] [data-close-button] {
+	border-color: transparent;
+	background: transparent;
+	color: var(--info-text);
+}
+
+[data-rich-colors="true"][data-sonner-toast][data-styled="true"][data-type="warning"] {
+	border-color: color-mix(in srgb, var(--warning-text) 25%, transparent);
+	background: var(--warning-bg);
+	color: var(--warning-text);
+	box-shadow:
+		0 8px 24px rgb(0 0 0 / 0.12),
+		0 2px 8px rgb(0 0 0 / 0.06),
+		inset 0 1px 0 color-mix(in srgb, var(--warning-text) 8%, transparent);
+}
+
+[data-rich-colors="true"][data-sonner-toast][data-styled="true"][data-type="warning"] [data-close-button] {
+	border-color: transparent;
+	background: transparent;
+	color: var(--warning-text);
+}
+
+[data-rich-colors="true"][data-sonner-toast][data-styled="true"][data-type="error"] {
+	border-color: color-mix(in srgb, var(--error-text) 25%, transparent);
+	background: var(--error-bg);
+	color: var(--error-text);
+	box-shadow:
+		0 8px 24px rgb(0 0 0 / 0.12),
+		0 2px 8px rgb(0 0 0 / 0.06),
+		inset 0 1px 0 color-mix(in srgb, var(--error-text) 8%, transparent);
+}
+
+[data-rich-colors="true"][data-sonner-toast][data-styled="true"][data-type="error"] [data-close-button] {
+	border-color: transparent;
+	background: transparent;
+	color: var(--error-text);
+}
+
+/* ── Mobile responsive ── */
+@media (max-width: 600px) {
+	[data-sonner-toaster-group] {
+		left: var(--mobile-offset-left);
+		right: var(--mobile-offset-right);
+		width: auto;
+	}
+
+	[data-sonner-toaster-group][data-x-position="left"] {
+		left: var(--mobile-offset-left);
+		right: auto;
+		align-items: stretch;
+		width: calc(100% - var(--mobile-offset-left) - var(--mobile-offset-right));
+	}
+
+	[data-sonner-toaster-group][data-x-position="right"] {
+		left: var(--mobile-offset-left);
+		right: var(--mobile-offset-right);
+		align-items: stretch;
+		width: auto;
+	}
+
+	[data-sonner-toaster-group][data-y-position="bottom"] {
+		bottom: var(--mobile-offset-bottom);
+	}
+
+	[data-sonner-toaster-group][data-y-position="top"] {
+		top: var(--mobile-offset-top);
+	}
+
+	[data-sonner-toaster-group][data-x-position="center"] {
+		left: var(--mobile-offset-left);
+		right: var(--mobile-offset-right);
+		transform: none;
+		width: auto;
+	}
+
+	[data-sonner-toaster] {
+		width: 100%;
+	}
+
+	[data-sonner-toaster] [data-sonner-toast],
+	[data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+		left: 0;
+		right: 0;
+		width: 100%;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	[data-sonner-toast],
+	[data-sonner-toast] > *,
+	[data-sonner-toaster],
+	[data-sonner-toaster-group] {
+		transition: none !important;
+		animation: none !important;
+	}
+}

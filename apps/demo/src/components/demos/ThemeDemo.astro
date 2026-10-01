@@ -1,0 +1,162 @@
+---
+import { segmentButtonActiveClass } from "../../lib/button-styles";
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("theme")!;
+
+const themeBtnActive = segmentButtonActiveClass;
+
+const PREFS_CODE = `<div x-data>
+  <!-- $theme is a getter on the SAME object as $store.theme, not a second
+       projection: renaming storeKey renames both. -->
+  <DemoButton @click="$theme.set('light')">Light</DemoButton>
+  <DemoButton @click="$theme.set('dark')">Dark</DemoButton>
+  <DemoButton @click="$theme.set('system')">System</DemoButton>
+
+  <ul>
+    <li>Preference (current): <strong x-text="$theme.current"></strong></li>
+    <li>System:            <strong x-text="$theme.system"></strong></li>
+    <li>Resolved:          <strong x-text="$theme.resolved"></strong></li>
+  </ul>
+</div>
+
+<!-- The difference between the three is only visible in 'system': current is
+     your choice, system is what the OS says, and resolved is the one that got
+     applied. -->`;
+
+const TOGGLE_CODE = `<!-- toggle() decides on RESOLVED, not on the preference, and
+     always writes an explicit preference. On 'system' with the OS in dark, a
+     click writes 'light' — it never goes back to 'system'.
+
+     That is why the button is labelled with resolved: in 'system' the two
+     coincide, and that is exactly the case the text has to get right. -->
+<DemoButton @click="$theme.toggle()">
+  <span x-text="$theme.resolved === 'dark' ? 'Light' : 'Dark'">toggle()</span>
+</DemoButton>
+
+<!-- reset() is NOT an inverse toggle: it goes back to defaultTheme ('system')
+     and also removes the localStorage key, even if you are already on system. -->
+<DemoButton variant="ghost" @click="$theme.reset()">reset()</DemoButton>`;
+
+const PERSIST_CODE = `<!-- The three things the package brings and a hand-rolled toggle does
+     not have. None of them is visible in the three numbers above. -->
+
+<!-- 1. Persistence. The choice is written to localStorage under the 'theme'
+        key and createThemeController() reads it back in setup(), before
+        applying anything. -->
+
+<!-- 2. Anti-flash on the FIRST load. The package does NOT do that: the
+        controller runs after Alpine has started, so a hard reload in dark theme
+        would paint light first. An inline script in <head>, before any
+        stylesheet, reading the same key, is what solves it. -->
+
+<!-- 3. Cross-tab. The controller subscribes to the 'storage' event: open this
+        page in two tabs and change the theme in one — the other follows. -->
+
+<!-- 4. View transitions. This playground navigates with Astro's ClientRouter,
+        and every swap replaces the <html> element: the server's class comes back
+        and the theme would look like it resets on navigation. That is why the
+        plugin is registered with reapplyEvents: ['astro:after-swap'], which
+        calls apply() — the forced write that ignores the "already applied". -->`;
+// ──
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="Three values, not one: choice, OS and applied"
+		note="A hand-rolled theme toggle has one variable. This one has three, and they only agree while you are on `system` — which is exactly when the difference matters. Use `$theme` or `$store.theme`, it is the same object."
+		open
+		code={PREFS_CODE}
+	>
+		<ul class="list-disc list-inside space-y-1 text-sm" data-testid="theme-state">
+			<li>Preference (current): <strong x-text="$store.theme.current"></strong></li>
+			<li>System: <strong x-text="$store.theme.system"></strong></li>
+			<li>Resolved: <strong x-text="$store.theme.resolved"></strong></li>
+		</ul>
+		<div class="mt-3 flex flex-wrap gap-2">
+			<DemoButton class={themeBtnActive} x-bind:data-active="$store.theme.current === 'light' ? 'true' : null" @click="$store.theme.set('light')">Light</DemoButton>
+			<DemoButton class={themeBtnActive} x-bind:data-active="$store.theme.current === 'dark' ? 'true' : null" @click="$store.theme.set('dark')">Dark</DemoButton>
+			<DemoButton class={themeBtnActive} x-bind:data-active="$store.theme.current === 'system' ? 'true' : null" @click="$store.theme.set('system')">System</DemoButton>
+		</div>
+		<p class="mt-3 text-xs text-[var(--ios-label-secondary)]">
+			The <strong>System</strong> button stays active while the preference is
+			<code>system</code>. If the OS is in dark, <code>current</code> and
+			<code>resolved</code> will say <code>dark</code> too — that is the only window in
+			which they look different.
+		</p>
+	</DemoExample>
+
+	<DemoExample
+		title="toggle() decides on what is applied, and never goes back to system"
+		note="This is the API trap. Press toggle while on `system`: it does not flip the other way, it writes an explicit preference. And `reset()` is not its inverse — it goes back to the default value and removes the storage key."
+		code={TOGGLE_CODE}
+	>
+		<div class="space-y-3">
+			<div class="flex flex-wrap gap-2">
+				<DemoButton data-testid="theme-toggle" @click="$store.theme.toggle()">
+					<span x-text="$store.theme.resolved === 'dark' ? 'Light' : 'Dark'">toggle()</span>
+				</DemoButton>
+				<DemoButton variant="ghost" @click="$store.theme.reset()">reset()</DemoButton>
+			</div>
+			<p class="text-sm">
+				After <code>toggle()</code>: <code>current</code> is
+				<strong x-text="$store.theme.current"></strong> · after
+				<code>reset()</code> it goes back to <code>system</code> and the
+				<code>localStorage</code> key is removed.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="What you do not see: persistence, anti-flash, cross-tab and the router"
+		note="The three numbers above are the trivial part. Reload the page, open two tabs, navigate around the playground: that is what the package gives you, and it does not fit in a single block."
+		code={PERSIST_CODE}
+	>
+		<div class="space-y-3 text-xs text-[var(--ios-label-secondary)]">
+			<p>
+				<strong>Reload the page.</strong> The three numbers above are not the
+				interesting part — they are the same three variables any theme toggle
+				has. What the plugin adds is everything around them:
+			</p>
+			<ul class="list-disc space-y-2 pl-5">
+				<li>
+					<strong>Persistence.</strong> The choice is written to
+					<code>localStorage</code> under <code>theme</code> and
+					<code>setup()</code> reads it back <em>before</em> applying anything.
+				</li>
+				<li>
+					<strong>Anti-flash.</strong> The package does <em>not</em> do that, and it
+					is worth saying so: the controller runs after Alpine has started, so a
+					hard reload in dark theme would paint light first. A
+					<code>&lt;script is:inline&gt;</code> in the <code>&lt;head&gt;</code> of
+					<code>BaseLayout.astro</code>, reading the same key before any
+					stylesheet, is what solves it. That is host code.
+				</li>
+				<li>
+					<strong>Cross-tab sync.</strong> Open this page in two tabs and change
+					the theme in one: the other follows, because the controller subscribes
+					to the <code>storage</code> event. With a hand-rolled toggle you would
+					read <code>localStorage</code> once at startup and never again.
+				</li>
+				<li>
+					<strong>View transitions.</strong> This playground uses Astro's
+					<code>ClientRouter</code>, and every swap replaces the
+					<code>&lt;html&gt;</code> element — the server's class comes back and
+					the theme would look like it resets on navigation. The plugin is
+					registered with
+					<code>reapplyEvents: ['astro:after-swap']</code>, which calls
+					<code>apply()</code>: the forced write that ignores the "already
+					applied". That single option is why the theme survives navigation here.
+				</li>
+			</ul>
+			<p>
+				<code>current</code> is your choice (<code>light</code> / <code>dark</code> /
+				<code>system</code>), <code>system</code> is what the OS reports, and
+				<code>resolved</code> is the combination — the value actually applied.
+			</p>
+		</div>
+	</DemoExample>
+</DemoSection>

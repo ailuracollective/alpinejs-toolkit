@@ -1,0 +1,114 @@
+# Label manifest for alpinejs-toolkit.
+#
+# This file is a MANIFEST, not a workflow input and not a CI configuration. Nothing in
+# this repository reads it automatically: `.github/workflows/policy.yml` does not
+# parse it, and it is not a schema GitHub itself understands. It is the reviewed,
+# version-controlled record of the label set this project uses, plus the exact command
+# sequence that applies it.
+#
+# The labels are NOT applied to GitHub yet. This clone has no git remote and zero
+# commits, so `gh label create` cannot run against it. Once a remote exists, run the
+# documented sequence at the bottom of this file once, from the repository root, with
+# the `gh` CLI authenticated against the target repository.
+#
+# The label set has two families:
+#   - 12 PR type labels: bare Conventional Commit types with NO `type:` prefix, plus
+#     `breaking-change`. Exactly one of these must be on a pull request.
+#   - 2 status labels: `status:needs-review` (auto-applied to new issues) and
+#     `status:approved` (applied by a maintainer once the issue is triaged).
+#
+# Colors are hex WITHOUT the leading `#`, because that is what `gh label create
+# --color` expects. The type labels are spread across distinguishable hues; the two
+# `status:` labels use low-saturation colors that read as a separate family.
+
+labels:
+  # --- PR type labels (12) -----------------------------------------------------
+  - name: feat
+    color: 0e8a16
+    description: Mark a pull request that adds new user-facing capability.
+
+  - name: fix
+    color: d73a4a
+    description: Mark a pull request that corrects a defect in existing behavior.
+
+  - name: docs
+    color: 0075ca
+    description: Mark a pull request that changes documentation only.
+
+  - name: refactor
+    color: 5319e7
+    description: Mark a pull request that restructures code without changing behavior.
+
+  - name: chore
+    color: 7057ff
+    description: Mark a pull request for maintenance and housekeeping work.
+
+  - name: style
+    color: c2e0c6
+    description: Mark a pull request that only reformats code with no behavior change.
+
+  - name: perf
+    color: fbca04
+    description: Mark a pull request that improves a measured characteristic.
+
+  - name: test
+    color: 0052cc
+    description: Mark a pull request that adds or updates tests only.
+
+  - name: build
+    color: e99695
+    description: Mark a pull request that changes the build system or toolchain.
+
+  - name: ci
+    color: fe7d37
+    description: Mark a pull request that changes pipelines, workflows or automation.
+
+  - name: revert
+    color: 6f42c1
+    description: Mark a pull request that undoes an earlier change.
+
+  - name: breaking-change
+    color: b60205
+    description: Mark a pull request whose consumers must change their code.
+
+  # --- Status labels (2) --------------------------------------------------------
+  - name: "status:needs-review"
+    color: bfc5cc
+    description: Wait for a maintainer to triage this issue.
+
+  - name: "status:approved"
+    color: 0d2f5b
+    description: Allow a pull request to link this issue for closure on merge.
+
+# ---------------------------------------------------------------------------
+# Applying this manifest
+# ---------------------------------------------------------------------------
+#
+# The manifest is not consumed by any automation. Once the repository has a remote,
+# apply it with the sequence below, run once from the repository root:
+#
+#   gh label create "feat" --color "0e8a16" --description "Mark a pull request that adds new user-facing capability."
+#   gh label create "fix" --color "d73a4a" --description "Mark a pull request that corrects a defect in existing behavior."
+#   gh label create "docs" --color "0075ca" --description "Mark a pull request that changes documentation only."
+#   gh label create "refactor" --color "5319e7" --description "Mark a pull request that restructures code without changing behavior."
+#   gh label create "chore" --color "7057ff" --description "Mark a pull request for maintenance and housekeeping work."
+#   gh label create "style" --color "c2e0c6" --description "Mark a pull request that only reformats code with no behavior change."
+#   gh label create "perf" --color "fbca04" --description "Mark a pull request that improves a measured characteristic."
+#   gh label create "test" --color "0052cc" --description "Mark a pull request that adds or updates tests only."
+#   gh label create "build" --color "e99695" --description "Mark a pull request that changes the build system or toolchain."
+#   gh label create "ci" --color "fe7d37" --description "Mark a pull request that changes pipelines, workflows or automation."
+#   gh label create "revert" --color "6f42c1" --description "Mark a pull request that undoes an earlier change."
+#   gh label create "breaking-change" --color "b60205" --description "Mark a pull request whose consumers must change their code."
+#   gh label create "status:needs-review" --color "bfc5cc" --description "Wait for a maintainer to triage this issue."
+#   gh label create "status:approved" --color "0d2f5b" --description "Allow a pull request to link this issue for closure on merge."
+#
+# Notes:
+#   * `gh label create` fails with "label already exists" when a label is already
+#     present. To re-apply this manifest over an existing set, add `--force` to every
+#     command above; `--force` updates the color and description in place.
+#   * Run `gh label list` to audit what is currently applied on the remote and diff it
+#     against the 14 entries above before forcing anything.
+#   * `status:needs-review` is applied automatically to new issues by the `triage` job
+#     in `.github/workflows/policy.yml`; it only needs to exist remotely for that job
+#     to succeed. `status:approved` is applied by hand by a maintainer, and is the label
+#     `pull-request-policy` requires on a linked issue.

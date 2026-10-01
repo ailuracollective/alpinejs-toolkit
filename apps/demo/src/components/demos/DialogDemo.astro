@@ -1,0 +1,259 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import Kbd from "../astro/Kbd.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("dialog")!;
+
+// The dialog is a *registry*: each id carries its own open state, ARIA wiring
+// and close rules, so two dialogs on one page never interfere. That is the
+// reason to use the store rather than a boolean in x-data.
+//
+// `x-dialog.panel` is the whole element-bound half of the API: it binds this
+// element as the container, creates the instance if the id is new, closes on an
+// outside click, and RELEASES the binding when Alpine removes the element. The
+// backdrop below it is presentational only — a hand-wired
+// `@click="handleOutsideClick"` plus `x-init="bindContainer(...)"` is what this
+// replaces.
+//
+// Careful: x-dialog does NOT open the dialog and does not listen for keys. That
+// is the host's job.
+const BASIC_CODE = `<button type="button"
+        @click="$store.dialog.open('settings', { trigger: $el })">
+  Open settings
+</button>
+
+<template x-teleport="#overlay-root">
+  <div x-show="$store.dialog.isOpen('settings')" x-cloak
+       x-transition.duration.150ms
+       class="fixed inset-0 flex items-center justify-center p-4"
+       :style="{ zIndex: $store.overlay.zIndexOf('dialog', 'settings') }">
+
+    <!-- The backdrop no longer carries @click: the .panel modifier listens on
+         document in the capture phase, so a backdrop that stops propagation
+         still reaches the panel. -->
+    <div class="absolute inset-0 bg-black/50" aria-hidden="true"></div>
+
+    <div x-dialog.panel="'settings'"
+         class="relative z-10 w-full max-w-md rounded-lg border p-6 shadow-lg"
+         x-bind="$store.dialog.dialogProps('settings')">
+      <h2 id="dialog-title">Settings</h2>
+      <p id="dialog-desc" class="text-sm">Escape, the backdrop, or the button closes.</p>
+      <button type="button" @click="$store.dialog.close('settings')">Close</button>
+    </div>
+  </div>
+</template>
+
+<!-- x-dialog does not listen for keys: you have to route Escape yourself. -->
+<div @keydown.window="$store.dialog.handleKeydown('settings', $event)"></div>`;
+
+const RULES_CODE = `x-init="$store.dialog.create('locked', {
+  closeOnEscape: false,
+  closeOnOutsideClick: false,
+})"
+
+<!-- One listener for both ids: handleKeydown() looks at the closeOnEscape of
+     EACH INSTANCE, so 'locked' ignores the key and 'settings' does not. -->
+<div @keydown.window="
+  $store.dialog.handleKeydown('settings', $event);
+  $store.dialog.handleKeydown('locked', $event)
+"></div>`;
+
+const SCROLL_CODE = `$store.dialog.create('settings', {
+  // The scroll lock is NOT the package's: the plugin does not touch the page.
+  onOpen: () => {
+    if (!this.scrollHandle) this.scrollHandle = $store.scroll.lock('dialog-demo');
+  },
+  onClose: () => {
+    const handle = this.scrollHandle;
+    if (!handle) return;
+    this.scrollHandle = null;
+    // Deferred 200ms: otherwise it unlocks INSIDE close(), before the 150ms
+    // leave transition has finished, and the body changes width halfway
+    // through the animation.
+    setTimeout(() => $store.scroll.unlock(handle), 200);
+  },
+});
+
+// And focus is not either: to move it you have to do it by hand, for example
+// from onOpen().`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<!--
+		Scroll lock is not part of it. The plugin owns state, not the page's
+		scroll, so the demo wires `$store.scroll` through `onOpen` / `onClose`.
+		The unlock is deferred 200ms because it would otherwise run inside
+		`close()`, before the 150ms leave transition finished, and the body width
+		shifts mid-animation.
+	-->
+	<div
+		class="grid gap-6"
+		x-data="{
+			scrollHandle: null,
+			registerDemo() {
+				$store.dialog.create('settings', {
+					labelledBy: 'dialog-title',
+					describedBy: 'dialog-desc',
+					onOpen: () => {
+						if (!this.scrollHandle) {
+							this.scrollHandle = $store.scroll.lock('dialog-demo');
+						}
+					},
+					onClose: () => {
+						const handle = this.scrollHandle;
+						if (!handle) return;
+						this.scrollHandle = null;
+						// Defer unlock past the x-transition leave (150ms).
+						setTimeout(() => $store.scroll.unlock(handle), 200);
+					},
+				});
+				$store.dialog.create('locked', {
+					closeOnEscape: false,
+					closeOnOutsideClick: false,
+				});
+			},
+		}"
+		x-init="registerDemo()"
+		@keydown.window="
+			$store.dialog.handleKeydown('settings', $event);
+			$store.dialog.handleKeydown('locked', $event)
+		"
+	>
+		<DemoExample
+			title="x-dialog.panel binds the panel and releases it on its own"
+			note="This block carries no bindContainer() and no @click on the backdrop: the .panel modifier does both, including the release when Alpine removes the element — which is the only teardown path Alpine 3.17 actually runs. Escape you do have to route by hand."
+			open
+			code={BASIC_CODE}
+		>
+			<div>
+				<p class="mb-3 text-xs text-[var(--ios-label-secondary)]">
+					Open state: <strong x-text="$store.dialog.isOpen('settings')"></strong> ·
+					<strong x-text="$store.dialog.isOpen('locked')"></strong>
+				</p>
+				<div class="flex flex-wrap gap-2">
+					<DemoButton
+						@click="$store.dialog.open('settings', { trigger: $el })"
+						data-testid="dialog-open"
+					>
+						Open settings
+					</DemoButton>
+					<DemoButton @click="$store.dialog.open('locked')">Open non-dismissible</DemoButton>
+				</div>
+
+				<template x-teleport="#overlay-root">
+					<div
+						x-show="$store.dialog.isOpen('settings')"
+						x-cloak
+						x-transition.duration.150ms
+						class="fixed inset-0 flex items-center justify-center p-4"
+						:style="{ zIndex: $store.overlay.zIndexOf('dialog', 'settings') }"
+					>
+						<div class="absolute inset-0 bg-black/50" aria-hidden="true"></div>
+						<div
+							x-dialog.panel="'settings'"
+							class="relative z-10 w-full max-w-md rounded-lg border bg-[var(--ios-bg-elevated)] p-6 shadow-lg"
+							x-bind="$store.dialog.dialogProps('settings')"
+						>
+							<h2 id="dialog-title" class="text-lg font-semibold">Settings</h2>
+							<p id="dialog-desc" class="mt-1 text-sm text-[var(--ios-label-secondary)]">
+								Escape, overlay click, or the button below closes this dialog.
+							</p>
+							<div class="mt-4 flex gap-2">
+								<DemoButton @click="$store.dialog.close('settings')">Close</DemoButton>
+								<DemoButton
+									@click="$store.toast.push({ title: 'Saved from dialog', variant: 'success' })"
+								>
+									Save + toast
+								</DemoButton>
+							</div>
+						</div>
+					</div>
+				</template>
+
+				<template x-teleport="#overlay-root">
+					<div
+						x-show="$store.dialog.isOpen('locked')"
+						x-cloak
+						x-transition.duration.150ms
+						class="fixed inset-0 flex items-center justify-center p-4"
+						:style="{ zIndex: $store.overlay.zIndexOf('dialog', 'locked') }"
+					>
+						<div class="absolute inset-0 bg-black/50" aria-hidden="true"></div>
+						<div
+							x-dialog.panel="'locked'"
+							class="relative z-10 w-full max-w-sm rounded-lg border bg-[var(--ios-bg-elevated)] p-6 shadow-lg"
+							x-bind="$store.dialog.dialogProps('locked')"
+						>
+							<h2 class="text-lg font-semibold">Confirm</h2>
+							<p class="mt-1 text-sm text-[var(--ios-label-secondary)]">
+								This one was created with <code>closeOnEscape: false</code> and
+								<code>closeOnOutsideClick: false</code>.
+							</p>
+							<div class="mt-4 flex gap-2">
+								<DemoButton @click="$store.dialog.close('locked')">Close anyway</DemoButton>
+							</div>
+						</div>
+					</div>
+				</template>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="Close rules are per instance, not global"
+			note="A single keyboard listener for both ids. handleKeydown() consults the closeOnEscape of EACH instance, so Escape closes the one above and leaves the one below. The only thing the plugin sets globally is the value a dialog inherits when it does not say otherwise."
+			code={RULES_CODE}
+		>
+			<div class="text-xs text-[var(--ios-label-secondary)]">
+				<p>
+					<code>'settings'</code> — created with no options, so both rules default to
+					<strong>true</strong>: <Kbd>Escape</Kbd> and the backdrop close it.
+				</p>
+				<p class="mt-1">
+					<code>'locked'</code> — created with <code>closeOnEscape: false</code> and
+					<code>closeOnOutsideClick: false</code>: neither closes it, and the only way out is
+					the button.
+				</p>
+				<p class="mt-2 text-[var(--ios-label-tertiary)]">
+					Both panels use the same <code>x-dialog.panel</code> and the same
+					<code>dialogProps()</code>. The only difference is the object passed to
+					<code>create()</code> — which is the point: a dialog is a registry entry, not a
+					flag in <code>x-data</code>.
+				</p>
+			</div>
+		</DemoExample>
+
+		<DemoExample
+			title="The host wires the scroll lock, not the package"
+			note="onOpen/onClose are the only hooks the store offers, and they are enough: this lock is written by the demo, not the plugin. The unlock is deferred 200ms because otherwise it runs INSIDE close(), before the 150ms leave transition has finished."
+			code={SCROLL_CODE}
+		>
+			<div class="text-xs text-[var(--ios-label-secondary)]">
+				<ul class="list-disc space-y-1 pl-5">
+					<li>
+						<code>dialogProps()</code> sets <code>role="dialog"</code>, <code>aria-modal</code>,
+						and the labelled/describedby wiring from the ids given at <code>create()</code>
+					</li>
+					<li>
+						<Kbd>Escape</Kbd> closes when <code>closeOnEscape</code> is enabled, and the
+						backdrop when <code>closeOnOutsideClick</code> is — both per instance, not global
+					</li>
+					<li>
+						Scroll lock, focus movement and focus restoration are
+						<strong>yours</strong>. The package holds no focus management at all: it never
+						moves focus into the panel on open nor returns it to the trigger on close. The
+						scroll lock above is wired by this demo, not by the plugin.
+					</li>
+					<li>
+						Because focus is not managed, <code>bindContainer()</code> is how you hand the panel
+						to Alpine — and it is also the hook to move focus yourself. With
+						<code>x-dialog.panel</code> you do not call it: the directive does, and releases it
+						when the element leaves the tree.
+					</li>
+				</ul>
+			</div>
+		</DemoExample>
+	</div>
+</DemoSection>

@@ -1,0 +1,149 @@
+---
+/**
+ * `core` is the one package that is not an Alpine plugin, so this page is the
+ * one place where "reads the store" proves nothing: the stores on the page were
+ * registered by the other packages, and a page that only counted them would
+ * look identical with `core` removed. Every example below therefore *calls*
+ * core and shows what came back — the guard's real `RegistrationError`, ids from
+ * core's real counter, `safeWindow()` returning `undefined` because there is no
+ * window on the machine that built the page.
+ */
+import { coreEnvSnapshot } from "../../demo/core-demo";
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("core")!;
+const env = coreEnvSnapshot();
+
+const GUARD_CODE = `import { guardStore } from "@ailura/alpinejs-core/guards";
+
+// Throws if ANOTHER package already claimed that name.
+guardStore(alpine, storeKey, store, packageName);
+
+// The playground passes it to allow it explicitly:
+guardStore(alpine, "query", store, pkg, { override: true });`;
+
+const CORE_CODE = `// Everything, from the single entry:
+import { BaseController } from "@ailura/alpinejs-core/controller";
+
+// Or by subpath, to avoid pulling in the rest:
+import { safeWindow } from "@ailura/alpinejs-core/env";
+import { guardStore } from "@ailura/alpinejs-core/guards";
+import { generateId } from "@ailura/alpinejs-core/ids";
+import { invariant } from "@ailura/alpinejs-core/invariant";
+import { readAlpineStore } from "@ailura/alpinejs-core/registration";`;
+
+const IDS_CODE = `import { generateId } from "@ailura/alpinejs-core/ids";
+
+generateId("demo");   // "demo-1", then "demo-2", …
+generateId();         // "id-9" — one counter, shared by every prefix
+
+// Every controller in the toolkit takes its id from here, which is why two
+// accordions on one page never collide — and why an id is *not* stable across
+// a reload.`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<p class="text-sm text-[var(--ios-label-secondary)] text-pretty">
+		<code>core</code> is not an Alpine plugin — it is the shared substrate every package builds
+		on. You do not install it to use a feature; you install it to <em>write</em> one. So there
+		are no magics to read here: the examples below call core directly.
+	</p>
+
+	<DemoExample
+		title="A store registered again by its own package is not an error"
+		note="This is the real guard, not a description of it: the second call uses the same package name $store.scroll already had, and the guard lets it through. That is what keeps a hot reload from breaking anything."
+		open
+		code={GUARD_CODE}
+	>
+		<div class="space-y-3 text-sm" x-data="coreDemo">
+			<DemoButton @click="reRegister()">Re-register $store.scroll</DemoButton>
+			<p
+				class="font-mono text-xs text-[var(--ios-label-secondary)]"
+				x-text="reregistered || 'Press the button: whatever shows up is the real guardStore() message.'"
+				data-testid="core-reregister"
+			></p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Two different packages with the same name IS an error"
+		note="Same guard, different owner: a RegistrationError is thrown here and the text below is its message. That is the reason it exists — two packages fighting over $store.scroll would break the page on each other's calls."
+		code={GUARD_CODE}
+	>
+		<div class="space-y-3 text-sm" x-data="coreDemo">
+			<DemoButton @click="collide()">Try to steal $store.scroll</DemoButton>
+			<p
+				class="font-mono text-xs text-[var(--ios-red)]"
+				x-text="collision || 'Press the button: whatever shows up is the real RegistrationError message.'"
+				data-testid="core-collision"
+			></p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="safeWindow() and safeDocument() are server-safe"
+		note="They are called while the page is being built, and on the server there is no window: that is why they return undefined instead of throwing. That this renders into the static HTML is the demonstration."
+		open
+		code={`import { safeDocument, safeWindow } from "@ailura/alpinejs-core/env";
+
+safeWindow()   // → { env.window }
+safeDocument() // → { env.document }`}
+	>
+		<div class="grid gap-3 text-sm sm:grid-cols-2" data-testid="core-env">
+			<div class="rounded-lg border border-[var(--ios-separator)] p-3">
+				<p class="mb-1 font-medium">safeWindow()</p>
+				<p class="text-[var(--ios-label-secondary)]">
+					<strong>{env.window}</strong> — called at build time, on a machine with no window.
+				</p>
+			</div>
+			<div class="rounded-lg border border-[var(--ios-separator)] p-3">
+				<p class="mb-1 font-medium">safeDocument()</p>
+				<p class="text-[var(--ios-label-secondary)]">
+					<strong>{env.document}</strong> — same call, same moment.
+				</p>
+			</div>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="generateId() — the counter behind every controller id"
+		note="Each press calls core's real generateId() and prints what came back. Ids are short and ordered within the process — which is why two instances of the same package never collide, and equally why an id is not something you can persist across a reload."
+		code={IDS_CODE}
+	>
+		<div class="space-y-3 text-sm" x-data="coreDemo">
+			<DemoButton @click="generate()">generateId('demo')</DemoButton>
+			<ul
+				class="font-mono text-xs text-[var(--ios-label-secondary)]"
+				data-testid="core-ids"
+			>
+				<template x-for="id in ids" :key="id">
+					<li x-text="id"></li>
+				</template>
+			</ul>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="The 12 modules it exports"
+		note="They all live in core's single entry; they are also importable by subpath to avoid pulling in the rest."
+		code={CORE_CODE}
+	>
+		<ul class="grid list-disc pl-5 text-sm text-[var(--ios-label-secondary)] sm:grid-cols-2">
+			<li><code>guards</code> — <code>guardStore</code>, <code>guardMagic</code>, <code>guardDirective</code></li>
+			<li><code>controller</code> — <code>BaseController</code>: lifecycle + typed events</li>
+			<li><code>env</code> — <code>safeWindow</code>, <code>safeDocument</code>, <code>safeMatchMedia</code></li>
+			<li><code>directives</code> — the reactive readers and the props applier every element-bound directive uses: <code>carousel</code>, <code>dialog</code>, <code>keyboard</code>, <code>menu</code>, <code>selection</code>, <code>tooltip</code>, <code>virtual</code></li>
+			<li><code>sync</code> — <code>syncRecordFromSnapshot</code>: in-place record sync for an Alpine store</li>
+			<li><code>ids</code> — <code>generateId</code>: one base-36 counter, every controller's id</li>
+			<li><code>singletons</code> — <code>createSingleton</code>: one instance per <em>document</em>, a fresh scope per request under SSR</li>
+			<li><code>bridge</code> — <code>bridgeControllerDirective</code>: registers a directive and returns the ordered teardown Alpine's <code>cleanup()</code> runs</li>
+			<li><code>constants</code> — the lifecycle phases, the <code>change</code> event name and the change sources</li>
+			<li><code>errors</code> — <code>ToolkitError</code> and the coded <code>RegistrationError</code></li>
+			<li><code>invariant</code> — <code>invariant()</code>; every package throws its messages through it</li>
+			<li><code>registration</code> — <code>resolveStoreKey</code>, <code>resolvePluginKeys</code>, <code>readAlpineStore</code></li>
+		</ul>
+	</DemoExample>
+</DemoSection>

@@ -1,0 +1,153 @@
+---
+import { getPluginNavItem } from "../../plugin-nav";
+import DemoButton from "../astro/DemoButton.astro";
+import DemoExample from "../DemoExample.astro";
+import DemoSection from "../DemoSection.astro";
+
+const plugin = getPluginNavItem("query-adapter-nanostores")!;
+
+// The markup that mounts the example below, plus the adapter it needs. The
+// `create` option is the whole point of the package, so the sample shows it:
+// without it the controller's snapshots are published into an atom nobody can
+// reach, because the handle `create()` returns has no `subscribe`.
+const SNAPSHOT_CODE = `<!-- src/demo/query-nanostores-demo.ts -->
+const atoms: WritableAtom<unknown>[] = [];
+
+const adapter = createNanostoresStoreAdapter({
+  // Injected so the atoms the adapter allocates stay reachable. The singleton
+  // nanostoresStoreAdapter has no creator, so its snapshots go nowhere.
+  create: (initial) => {
+    const store = atom(initial);
+    atoms.push(store);
+    return store;
+  },
+});
+
+alpine.plugin(queryNanostores({ storeKey: "queryNanostores", adapter }));
+
+<!-- The page: the store is a sink, so the demo subscribes to the atom -->
+<div x-data="queryNanostoresDemo" data-testid="query-nanostores-snapshots">
+  <DemoButton @click="load()">observe()</DemoButton>
+  <DemoButton @click="addTitle()">mutate()</DemoButton>
+  <DemoButton variant="ghost" @click="forget()">remove()</DemoButton>
+
+  <span>phase: <strong x-text="phase"></strong></span>
+  <span>publishes: <strong x-text="publishes"></strong></span>
+
+  <template x-for="row in rows" :key="row.keyHash">
+    <tr>
+      <td x-text="row.keyHash"></td>
+      <td x-text="row.status"></td>
+      <td x-text="row.isStale"></td>
+    </tr>
+  </template>
+</div>
+
+// THE ONE-LINE DIFFERENCE from the zustand adapter: the callback argument IS
+// the snapshot. zustand's store.subscribe hands over the whole { value } slot,
+// so that reader starts with state.value before it reaches snapshot.entries.
+atoms[0].subscribe((snapshot) => {
+  console.log(snapshot.phase, snapshot.entries.length);
+});`;
+
+const READ_CODE = `// The same atom, read with no Alpine, no subscriber and no subscriber unwrap.
+// zustand's vanilla store would need store.getState().value here first.
+const snapshot = atoms[0].get() as QueryDevtoolsSnapshot;
+
+console.log(snapshot.phase);          // "mounted"
+console.log(snapshot.entries.length); // 1
+console.log(snapshot.mutations.length);
+
+// Every handle the controller created is in the same array, because the
+// injected creator is called once per handle:
+console.log(atoms.length); // 1`;
+---
+
+<DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
+	<DemoExample
+		title="Every publish the controller makes lands in an atom you can subscribe to"
+		note="The store is a command surface, exactly as it is on the other two adapters — nothing here reads the cache back. What this package adds is the sink: the controller publishes a snapshot into a nanostores atom on every change, and injecting create is what makes that atom reachable instead of silent. Watch the publish counter climb while the cache moves; nanostores fires the subscriber once on attach with the initial snapshot, so the count starts at 1."
+		open
+		code={SNAPSHOT_CODE}
+	>
+		<div x-data="queryNanostoresDemo" class="space-y-4" data-testid="query-nanostores-snapshots">
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="load()">observe()</DemoButton>
+				<DemoButton @click="addTitle()">mutate()</DemoButton>
+				<DemoButton variant="ghost" @click="forget()">remove()</DemoButton>
+			</div>
+
+			<div class="flex flex-wrap items-center gap-3 text-xs text-[var(--ios-label-secondary)]">
+				<span>phase: <strong x-text="phase"></strong></span>
+				<span>publishes: <strong x-text="publishes"></strong></span>
+				<span>mutations: <strong x-text="mutations"></strong></span>
+				<span>last: <strong x-text="lastPublishAt"></strong></span>
+			</div>
+
+			<p
+				class="text-xs text-[var(--ios-label-secondary)]"
+				x-show="!synced"
+				x-cloak
+				aria-live="polite"
+			>
+				No snapshot yet — the atom publishes when the cache changes.
+			</p>
+
+			<div class="overflow-hidden rounded-lg border border-[var(--ios-separator)]">
+				<table class="w-full text-left text-sm">
+					<thead class="bg-[var(--ios-fill-quaternary)] text-[10px] tracking-wider text-[var(--ios-label-tertiary)] uppercase">
+						<tr class="border-b border-[var(--ios-separator)]">
+							<th scope="col" class="h-9 px-3 font-semibold">Entry</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Status</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Fetching</th>
+							<th scope="col" class="h-9 px-3 font-semibold">Stale</th>
+							<th scope="col" class="h-9 px-3 text-right font-semibold">Cached titles</th>
+						</tr>
+					</thead>
+					<tbody>
+						<template x-for="row in rows" :key="row.keyHash">
+							<tr class="border-b border-[var(--ios-separator)] last:border-0">
+								<td class="p-2.5 font-mono text-xs" x-text="row.keyHash"></td>
+								<td class="p-2.5" x-text="row.status"></td>
+								<td class="p-2.5" x-text="row.fetchStatus"></td>
+								<td class="p-2.5" x-text="row.isStale"></td>
+								<td class="p-2.5 text-right" x-text="titles.join(', ') || '—'"></td>
+							</tr>
+						</template>
+					</tbody>
+				</table>
+			</div>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="The atom holds the snapshot itself, so reading it costs no unwrap"
+		note="A nanostores atom is a tiny observable box: what the controller published is what get() returns. The zustand adapter's store holds a { value } slot, so both its subscriber and its reader start one level out. This is the same cache, read from the same controller, with nothing between the reader and the data."
+		code={READ_CODE}
+	>
+		<div x-data="queryNanostoresDemo" class="space-y-3" data-testid="query-nanostores-atom-read">
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="load()">observe()</DemoButton>
+				<DemoButton variant="ghost" @click="readAtom()">atom.get()</DemoButton>
+			</div>
+
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				<code class="font-mono">atoms[0].get()</code> returns
+				<strong class="text-[var(--ios-label)]" x-text="atomRead"></strong>
+			</p>
+
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				The counter above comes from the subscriber's argument. This line comes from a plain
+				<code class="font-mono">get()</code> on the same atom — no subscriber, no Alpine, and
+				no <code class="font-mono">.value</code> to unwrap first.
+			</p>
+		</div>
+	</DemoExample>
+
+	<p class="text-xs text-[var(--ios-label-secondary)]">
+		Runs on <code>@ailura/alpinejs-query-adapter-nanostores</code> with a fake fetcher, registered
+		under its own <code>$store</code> key so the alpine and zustand registrations keep theirs. The
+		package registers a store and nothing else: no <code>$query</code>, no <code>$nano</code>, no
+		<code>x-nano</code>.
+	</p>
+</DemoSection>
