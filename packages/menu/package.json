@@ -56,6 +56,9 @@
     "@ailura/alpinejs-core": "workspace:*",
     "alpinejs": "^3.0.0"
   },
+  "engines": {
+    "node": ">=22"
+  },
   "toolkit": {
     "bundleBudget": {
       "category": "small-feature"
