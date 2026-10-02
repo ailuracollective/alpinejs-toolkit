@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-gesture",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Alpine.js headless gesture recognition — tap, swipe, pan, pinch, long press via pointer events on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",
