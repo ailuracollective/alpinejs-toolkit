@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-sidebar",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Alpine.js sidebar store for visibility state, overlay, keyboard navigation, and responsive breakpoints on @ailura/alpinejs-core, @ailura/alpinejs-ui and @ailura/alpinejs-media.",
   "keywords": [
     "alpine",

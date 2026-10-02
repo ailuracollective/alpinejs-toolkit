@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Shared infrastructure for Alpine.js toolkit plugins: controllers, guards, bridges, and SSR-safe helpers.",
   "keywords": [
     "alpine",

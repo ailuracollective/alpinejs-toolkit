@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-notify",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Alpine.js notification magic with permission and service worker support on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",

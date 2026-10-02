@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-tooltip",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Alpine.js headless accessible tooltip store — open/close with delay, hover/focus helpers and keyboard dismiss on @ailura/alpinejs-core.",
   "keywords": [
     "accessibility",

@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-lang",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Alpine.js language store: detect, query, manage current application language on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",

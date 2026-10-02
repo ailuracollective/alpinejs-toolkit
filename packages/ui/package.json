@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-ui",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Framework-agnostic UI primitives for the Alpine.js toolkit: storage adapters, media query listeners, and portal helpers.",
   "keywords": [
     "alpine",

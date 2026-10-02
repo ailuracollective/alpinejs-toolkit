@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-command",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Alpine.js command palette — searchable registry, ranked filtering, recent/pinned, nested pages and async execution on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",
