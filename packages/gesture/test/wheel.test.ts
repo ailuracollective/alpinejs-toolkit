@@ -15,7 +15,7 @@
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 
 import { GestureController } from "../src/controller";
-import type { GestureWheelDetail } from "../src/types";
+import type { GestureRecognizedDetail, GestureWheelDetail } from "../src/types";
 
 const mounted: GestureController[] = [];
 
@@ -101,6 +101,25 @@ describe("wheel ticks", () => {
     expect(controller.state.scale).toBeCloseTo(0.82, 2);
   });
 
+  test("a wheel detail reports the pointer fields a consumer switches on", () => {
+    const { controller, element } = wheelSurface();
+    const seen = wheelRecorder(controller);
+
+    const event = wheel(element, { deltaY: 100, x: 40, y: 60 });
+
+    // A wheel is not a pointer event: it carries no `pointerType` and no
+    // button state, so the detail reports the mouse at rest. Pinned because
+    // that shape is what `baseFields()` has to synthesise for a
+    // `WheelEvent`, and a consumer switching on `pointerType` depends on it.
+    const detail = seen.at(-1) as unknown as GestureRecognizedDetail | undefined;
+    expect(detail?.pointerType).toBe("mouse");
+    expect(detail?.button).toBe(0);
+    expect(detail?.buttons).toBe(0);
+    expect(detail?.target).toBe(element);
+    expect(detail?.originalEvent).toBe(event);
+    expect(detail?.state).toBe(controller.state);
+  });
+
   test("an upward turn zooms in", () => {
     const { controller, element } = wheelSurface();
     const seen = wheelRecorder(controller);
@@ -134,18 +153,31 @@ describe("wheel ticks", () => {
     expect(seen.at(-1)?.scale).toBeGreaterThan(1);
   });
 
-  test("the state carries the deltas and the scale", () => {
+  test("the state carries the deltas and the scale, but not the tilt axis", () => {
     const { controller, element } = wheelSurface();
 
     wheel(element, { deltaX: 3, deltaY: 4, deltaZ: 5, x: 12, y: 34 });
 
     expect(controller.state.deltaX).toBe(3);
     expect(controller.state.deltaY).toBe(4);
-    expect(controller.state.deltaZ).toBe(5);
     expect(controller.state.x).toBe(12);
     expect(controller.state.y).toBe(34);
     expect(controller.state.pointerType).toBe("mouse");
     expect(controller.state.buttons).toBe(0);
+  });
+
+  test("deltaZ rides the detail, normalized, and stays off the state", () => {
+    const { controller, element } = wheelSurface();
+    const seen = wheelRecorder(controller);
+
+    // A line-mode tilt: 5 lines of tilt is 80 pixels, not 5.
+    wheel(element, { deltaZ: 5, deltaMode: 1 });
+
+    expect(seen.at(-1)?.deltaZ).toBe(80);
+    // Z is the device's tilt axis. Nothing computes from it, so mirroring it
+    // into the continuously-observed state would advertise a value the
+    // recognizer does not use. It belongs to the event that carried it.
+    expect("deltaZ" in controller.state).toBe(false);
   });
 });
 

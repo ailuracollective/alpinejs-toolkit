@@ -2,7 +2,7 @@ import { guardDirective, guardStore } from "@ailura/alpinejs-core/guards";
 import { resolveStoreKey } from "@ailura/alpinejs-core/registration";
 import type { Alpine } from "alpinejs";
 
-import { GestureController } from "./controller";
+import { GestureController, emptyState } from "./controller";
 import type {
   GestureKind,
   GestureOptions,
@@ -18,30 +18,6 @@ const packageName = "@ailura/alpinejs-gesture";
 interface Binding {
   readonly controller: GestureController;
   refs: number;
-}
-
-function emptyState(): GestureState {
-  return {
-    active: false,
-    kind: null,
-    x: 0,
-    y: 0,
-    distanceX: 0,
-    distanceY: 0,
-    totalDistance: 0,
-    velocityX: 0,
-    velocityY: 0,
-    pointerCount: 0,
-    scale: 1,
-    rotation: 0,
-    direction: "none",
-    button: 0,
-    buttons: 0,
-    pointerType: "",
-    deltaX: 0,
-    deltaY: 0,
-    deltaZ: 0,
-  };
 }
 
 /** The state keys the store mirrors, read once instead of per event. */
@@ -62,9 +38,7 @@ export function gesturePlugin(options: GestureOptions = {}): (alpine: Alpine) =>
     let focused: GestureController | null = null;
 
     const reactive = (alpine as unknown as { reactive?: (v: unknown) => unknown }).reactive;
-    const view = (reactive
-      ? reactive({ ...emptyState() })
-      : { ...emptyState() }) as unknown as Record<string, unknown>;
+    const view = (reactive?.(emptyState()) ?? emptyState()) as unknown as Record<string, unknown>;
 
     const sync = (controller: GestureController, state: GestureState): void => {
       // An idle controller must not stomp the state of the one in use.
@@ -73,66 +47,19 @@ export function gesturePlugin(options: GestureOptions = {}): (alpine: Alpine) =>
       for (const key of STATE_KEYS) view[key] = state[key];
     };
 
-    const store: GestureStore = {
-      get active() {
-        return view["active"] as GestureState["active"];
-      },
-      get kind() {
-        return view["kind"] as GestureState["kind"];
-      },
-      get x() {
-        return view["x"] as GestureState["x"];
-      },
-      get y() {
-        return view["y"] as GestureState["y"];
-      },
-      get distanceX() {
-        return view["distanceX"] as GestureState["distanceX"];
-      },
-      get distanceY() {
-        return view["distanceY"] as GestureState["distanceY"];
-      },
-      get totalDistance() {
-        return view["totalDistance"] as GestureState["totalDistance"];
-      },
-      get velocityX() {
-        return view["velocityX"] as GestureState["velocityX"];
-      },
-      get velocityY() {
-        return view["velocityY"] as GestureState["velocityY"];
-      },
-      get pointerCount() {
-        return view["pointerCount"] as GestureState["pointerCount"];
-      },
-      get scale() {
-        return view["scale"] as GestureState["scale"];
-      },
-      get rotation() {
-        return view["rotation"] as GestureState["rotation"];
-      },
-      get direction() {
-        return view["direction"] as GestureState["direction"];
-      },
-      get button() {
-        return view["button"] as GestureState["button"];
-      },
-      get buttons() {
-        return view["buttons"] as GestureState["buttons"];
-      },
-      get pointerType() {
-        return view["pointerType"] as GestureState["pointerType"];
-      },
-      get deltaX() {
-        return view["deltaX"] as GestureState["deltaX"];
-      },
-      get deltaY() {
-        return view["deltaY"] as GestureState["deltaY"];
-      },
-      get deltaZ() {
-        return view["deltaZ"] as GestureState["deltaZ"];
-      },
-      cancel: () => focused?.cancel(),
-    };
+    // One readable accessor per state key, generated from the same list
+    // `sync()` writes through, so the mirror cannot drift from the state: a
+    // key added to `emptyState()` is readable here without being restated.
+    // They are defined as own enumerable properties rather than through a
+    // `Proxy` because Alpine has to see a plain object it can walk.
+    const store = {} as GestureStore;
+    for (const key of STATE_KEYS) {
+      Object.defineProperty(store, key, {
+        get: () => view[key] as GestureState[typeof key],
+        enumerable: true,
+      });
+    }
+    store.cancel = () => focused?.cancel();
 
     guardStore(alpine, storeKey, store, packageName);
 
@@ -157,7 +84,7 @@ export function gesturePlugin(options: GestureOptions = {}): (alpine: Alpine) =>
       directiveKey,
       (el, { expression, modifiers }, { evaluateLater, cleanup }) => {
         const getHandler = evaluateLater(expression);
-        const kinds = new Set((modifiers.length ? modifiers : ["tap"]) as string[]);
+        const kinds = (modifiers.length ? modifiers : ["tap"]) as GestureKind[];
 
         const binding = bind(el);
         const { controller } = binding;
@@ -166,7 +93,7 @@ export function gesturePlugin(options: GestureOptions = {}): (alpine: Alpine) =>
         // plugin was configured with, so it can only add, never narrow — and
         // `wheel` is deliberately absent from the controller's default set, so
         // this call is the only thing that attaches that listener.
-        controller.enableGestures([...kinds] as GestureKind[]);
+        controller.enableGestures(kinds);
         binding.refs += 1;
 
         // `evaluateLater` auto-evaluates a function result: the handler is
@@ -177,7 +104,7 @@ export function gesturePlugin(options: GestureOptions = {}): (alpine: Alpine) =>
         // naive `evaluateLater(expr)((fn) => fn(detail))` does, calls the
         // handler with no `this` and no arguments.)
         const onGesture = (detail: GestureRecognizedDetail): void => {
-          if (!kinds.has(detail.kind)) return;
+          if (!kinds.includes(detail.kind)) return;
           getHandler(() => {}, { scope: {} as never, params: [detail] as never });
         };
         const off = controller.on("gesture", onGesture as never);

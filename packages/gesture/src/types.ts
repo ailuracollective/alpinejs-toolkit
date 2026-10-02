@@ -28,7 +28,6 @@ export interface GestureState {
   readonly pointerType: GesturePointerTypeName;
   readonly deltaX: number;
   readonly deltaY: number;
-  readonly deltaZ: number;
 }
 
 export interface GestureOptions {

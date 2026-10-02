@@ -10,6 +10,14 @@ import type {
   GestureDirection,
 } from "./types";
 
+/** The pointer events a recognizer needs, and the handler each one drives. */
+const POINTER_EVENTS = [
+  ["pointerdown", "handleDown"],
+  ["pointermove", "handleMove"],
+  ["pointerup", "handleUp"],
+  ["pointercancel", "handleCancel"],
+] as const;
+
 /** Every gesture recognized unless `options.gestures` narrows the list. */
 const ALL_GESTURES: readonly GestureKind[] = [
   "tap",
@@ -36,7 +44,15 @@ const WHEEL_PAGE_HEIGHT = 100;
  */
 const WHEEL_MIN_SCALE = 0.001;
 
-function emptyState(): GestureState {
+/**
+ * The idle state every controller starts from, with an optional patch on top.
+ *
+ * The store mirror in `plugin.ts` reads its key list from this one literal, so
+ * a new state key only has to be added here to be mirrored as well. A caller
+ * that wants to start from idle and override a few fields says so with
+ * `patch`, rather than spreading the result and restating the keys.
+ */
+export function emptyState(patch?: Partial<GestureState>): GestureState {
   return {
     active: false,
     kind: null,
@@ -56,7 +72,7 @@ function emptyState(): GestureState {
     pointerType: "",
     deltaX: 0,
     deltaY: 0,
-    deltaZ: 0,
+    ...patch,
   };
 }
 
@@ -78,14 +94,23 @@ function angleFor(dx: number, dy: number): number {
   return (Math.atan2(dy, dx) * 180) / Math.PI;
 }
 
-function baseFields(e: PointerEvent, state: GestureState) {
+/**
+ * The fields every gesture detail carries, whatever the input device.
+ *
+ * A `WheelEvent` is not a `PointerEvent`: it has no `pointerType` and no id,
+ * and no button is held while one is delivered. So the wheel reports
+ * `pointerType: "mouse"` with `button` and `buttons` at `0`, which is what
+ * keeps a consumer that switches on `pointerType` working unchanged.
+ */
+function baseFields(e: PointerEvent | WheelEvent, state: GestureState) {
+  const isPointer = "pointerType" in e;
   return {
     x: e.clientX,
     y: e.clientY,
     target: e.target,
-    button: e.button as 0,
-    buttons: e.buttons,
-    pointerType: e.pointerType,
+    button: (isPointer ? e.button : 0) as 0,
+    buttons: isPointer ? e.buttons : 0,
+    pointerType: isPointer ? e.pointerType : "mouse",
     state,
     originalEvent: e,
   };
@@ -115,7 +140,6 @@ export class GestureController extends BaseController<GestureEvents> {
   #startTime = 0;
   #lastTap = 0;
   #longPressTimer: ReturnType<typeof setTimeout> | null = null;
-  #active = false;
   /** Every pointer currently down on the element, keyed by `pointerId`. */
   #pointers = new Map<number, { x: number; y: number }>();
   /** Pinch baseline: spread and angle of the first two pointers to go down. */
@@ -136,10 +160,8 @@ export class GestureController extends BaseController<GestureEvents> {
   #wheelTimer: ReturnType<typeof setTimeout> | null = null;
   #onWheel: ((e: WheelEvent) => void) | null = null;
 
-  #onPointerDown: ((e: PointerEvent) => void) | null = null;
-  #onPointerMove: ((e: PointerEvent) => void) | null = null;
-  #onPointerUp: ((e: PointerEvent) => void) | null = null;
-  #onPointerCancel: ((e: PointerEvent) => void) | null = null;
+  /** The live `pointer*` listeners, so `detach()` removes exactly what `attach()` added. */
+  #listeners = new Map<string, EventListener>();
 
   constructor(options: GestureOptions = {}) {
     super();
@@ -152,7 +174,7 @@ export class GestureController extends BaseController<GestureEvents> {
     return this.#state;
   }
   get isTracking(): boolean {
-    return this.#active;
+    return this.#state.active;
   }
 
   private setState(patch: Partial<GestureState>): void {
@@ -184,16 +206,15 @@ export class GestureController extends BaseController<GestureEvents> {
    * programmatic path must keep working. Idempotent, so a second
    * `x-gesture.*` on the same element re-attaching nothing is harmless.
    */
-  enableGestures(kinds: readonly GestureKind[]): void {
-    let wheelTurnedOn = false;
+  enableGestures(kinds: Iterable<GestureKind>): void {
     for (const kind of kinds) {
       if (this.enabled(kind)) continue;
       this.#extraKinds.add(kind);
-      if (kind === "wheel") wheelTurnedOn = true;
+      // Only the wheel listener is per-kind, so only it needs the late attach;
+      // every other kind was already listening from `attach()`. `attachWheel()`
+      // is idempotent, so it does not need deferring to the end of the loop.
+      if (kind === "wheel" && this.#element) this.attachWheel();
     }
-    // Only the wheel listener is per-kind, so only it needs the late attach;
-    // every other kind was already listening from `attach()`.
-    if (wheelTurnedOn && this.#element) this.attachWheel();
   }
 
   private clearWheel(): void {
@@ -222,7 +243,7 @@ export class GestureController extends BaseController<GestureEvents> {
 
   private detachWheel(): void {
     if (!this.#element || !this.#onWheel) return;
-    this.#element.removeEventListener("wheel", this.#onWheel as EventListener, false);
+    this.#element.removeEventListener("wheel", this.#onWheel as EventListener);
     this.#onWheel = null;
     this.clearWheel();
   }
@@ -249,32 +270,25 @@ export class GestureController extends BaseController<GestureEvents> {
   attach(element: Element): void {
     this.detach();
     this.#element = element;
-    this.#onPointerDown = (e: PointerEvent) => this.handleDown(e);
-    this.#onPointerMove = (e: PointerEvent) => this.handleMove(e);
-    this.#onPointerUp = (e: PointerEvent) => this.handleUp(e);
-    this.#onPointerCancel = (e: PointerEvent) => this.handleCancel(e);
-    element.addEventListener("pointerdown", this.#onPointerDown as EventListener);
-    element.addEventListener("pointermove", this.#onPointerMove as EventListener);
-    element.addEventListener("pointerup", this.#onPointerUp as EventListener);
-    element.addEventListener("pointercancel", this.#onPointerCancel as EventListener);
+    for (const [type, handler] of POINTER_EVENTS) {
+      const listener = ((e: PointerEvent) => this[handler](e)) as EventListener;
+      this.#listeners.set(type, listener);
+      element.addEventListener(type, listener);
+    }
     if (this.enabled("wheel")) this.attachWheel();
     this.onCleanup(() => this.detach());
   }
 
   detach(): void {
-    if (!this.#element) return;
     const el = this.#element;
+    if (el) {
+      for (const [type, listener] of this.#listeners) {
+        el.removeEventListener(type, listener);
+      }
+    }
     this.detachWheel();
-    if (this.#onPointerDown)
-      el.removeEventListener("pointerdown", this.#onPointerDown as EventListener);
-    if (this.#onPointerMove)
-      el.removeEventListener("pointermove", this.#onPointerMove as EventListener);
-    if (this.#onPointerUp) el.removeEventListener("pointerup", this.#onPointerUp as EventListener);
-    if (this.#onPointerCancel)
-      el.removeEventListener("pointercancel", this.#onPointerCancel as EventListener);
     this.#element = null;
-    this.#onPointerDown = this.#onPointerMove = this.#onPointerUp = null;
-    this.#onPointerCancel = null;
+    this.#listeners.clear();
   }
 
   /**
@@ -292,7 +306,6 @@ export class GestureController extends BaseController<GestureEvents> {
     // zoomed in from a gesture nobody finished.
     this.clearWheel();
     this.#wheelAccumulator = 0;
-    this.#active = false;
     this.#pointers.clear();
     this.#pinching = false;
     this.#multiTouch = false;
@@ -305,7 +318,6 @@ export class GestureController extends BaseController<GestureEvents> {
       rotation: 0,
       deltaX: 0,
       deltaY: 0,
-      deltaZ: 0,
     });
   }
 
@@ -315,22 +327,31 @@ export class GestureController extends BaseController<GestureEvents> {
    * surface would otherwise stop feeding the recognizer mid-gesture.
    */
   private capture(pointerId: number): void {
-    const el = this.#element as (Element & { setPointerCapture?: (id: number) => void }) | null;
-    if (typeof el?.setPointerCapture !== "function") return;
     try {
-      el.setPointerCapture(pointerId);
-    } catch {
-      // Capture is a nicety: a browser that refuses it still delivers events.
-    }
+      // Capture is a nicety: an environment without it, or a browser that
+      // refuses the id, still delivers the events.
+      this.#element?.setPointerCapture?.(pointerId);
+    } catch {}
+  }
+
+  /**
+   * The displacement between the two leading pointers, as `[dx, dy]`.
+   *
+   * A zero displacement when fewer than two pointers are down, so a caller
+   * never has to re-ask whether the pair it wants exists.
+   */
+  private pointerDelta(): [number, number] {
+    const [a, b] = [...this.#pointers.values()];
+    return b ? [b.x - a.x, b.y - a.y] : [0, 0];
   }
 
   /** Current spread/angle of the two leading pointers, relative to the baseline. */
   private pinchMetrics(): { scale: number; rotation: number } {
-    const [a, b] = [...this.#pointers.values()];
-    const distance = Math.hypot(b.x - a.x, b.y - a.y);
+    const [dx, dy] = this.pointerDelta();
+    const distance = Math.hypot(dx, dy);
     return {
       scale: this.#pinchDistance < PINCH_MIN_DISTANCE ? 1 : distance / this.#pinchDistance,
-      rotation: angleFor(b.x - a.x, b.y - a.y) - this.#pinchAngle,
+      rotation: angleFor(dx, dy) - this.#pinchAngle,
     };
   }
 
@@ -345,30 +366,24 @@ export class GestureController extends BaseController<GestureEvents> {
     this.#pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (first) {
-      this.#active = true;
       this.#multiTouch = false;
       this.#panning = false;
       this.#startX = e.clientX;
       this.#startY = e.clientY;
       this.#startTime = Date.now();
-      this.setState({
-        active: true,
-        kind: null,
-        x: e.clientX,
-        y: e.clientY,
-        distanceX: 0,
-        distanceY: 0,
-        totalDistance: 0,
-        velocityX: 0,
-        velocityY: 0,
-        pointerCount: this.#pointers.size,
-        scale: 1,
-        rotation: 0,
-        button: e.button as 0,
-        buttons: e.buttons,
-        pointerType: e.pointerType,
-        direction: "none",
-      });
+      this.setState(
+        // The idle state, with the pose of the pointer that just went down on
+        // top of it: everything the interaction is not carrying yet is reset.
+        emptyState({
+          active: true,
+          x: e.clientX,
+          y: e.clientY,
+          pointerCount: this.#pointers.size,
+          button: e.button as 0,
+          buttons: e.buttons,
+          pointerType: e.pointerType,
+        })
+      );
     } else {
       this.setState({ pointerCount: this.#pointers.size, x: e.clientX, y: e.clientY });
     }
@@ -377,9 +392,9 @@ export class GestureController extends BaseController<GestureEvents> {
       // A second finger turns the interaction into a pinch: drop the
       // single-pointer long press and take the baseline to measure against.
       this.clearLongPress();
-      const [a, b] = [...this.#pointers.values()];
-      this.#pinchDistance = Math.hypot(b.x - a.x, b.y - a.y);
-      this.#pinchAngle = angleFor(b.x - a.x, b.y - a.y);
+      const [dx, dy] = this.pointerDelta();
+      this.#pinchDistance = Math.hypot(dx, dy);
+      this.#pinchAngle = angleFor(dx, dy);
       this.#pinching = true;
       this.#multiTouch = true;
       this.#panning = false;
@@ -397,13 +412,12 @@ export class GestureController extends BaseController<GestureEvents> {
    */
   private armLongPress(e: PointerEvent): void {
     if (!this.enabled("longpress")) return;
-    const delay = this.#options.longPressDelay ?? 500;
     this.#longPressTimer = setTimeout(() => {
       this.#longPressTimer = null;
-      if (!this.#active || this.#multiTouch || this.#state.kind === "longpress") return;
+      if (!this.#state.active || this.#multiTouch || this.#state.kind === "longpress") return;
       this.setState({ kind: "longpress" });
       this.emitBoth("longpress", { kind: "longpress", ...baseFields(e, this.#state) } as never);
-    }, delay);
+    }, this.#options.longPressDelay ?? 500);
   }
 
   private handleMove(e: PointerEvent): void {
@@ -426,7 +440,6 @@ export class GestureController extends BaseController<GestureEvents> {
     const dt = Math.max(1, Date.now() - this.#startTime);
     const vx = dx / dt;
     const vy = dy / dt;
-    const threshPan = this.#options.panThreshold ?? 10;
     const total = Math.hypot(dx, dy);
     // Moving past the tap threshold means this is not a press-and-hold, so the
     // pending long press is abandoned. It uses `tapThreshold`, not
@@ -447,7 +460,7 @@ export class GestureController extends BaseController<GestureEvents> {
       direction: dir,
     });
 
-    if (total > threshPan && !this.#multiTouch && this.enabled("pan")) {
+    if (total > (this.#options.panThreshold ?? 10) && !this.#multiTouch && this.enabled("pan")) {
       const phase: GesturePhase = this.#panning ? "move" : "start";
       this.#panning = true;
       this.setState({ kind: "pan" });
@@ -468,7 +481,10 @@ export class GestureController extends BaseController<GestureEvents> {
     if (!this.#pointers.has(e.pointerId)) return;
     this.#cancelled = false;
     this.release(e);
-    if (this.#pointers.size > 0 || this.#cancelled) return;
+    // `#cancelled` is false here and `release()` never sets it, so the only
+    // thing that can stop recognition is another pointer still being down. A
+    // cancellation arrives on `pointercancel`, which never gets this far.
+    if (this.#pointers.size > 0) return;
     this.recognize(e);
   }
 
@@ -504,7 +520,6 @@ export class GestureController extends BaseController<GestureEvents> {
     // Last pointer of the interaction: the gesture itself is over.
     const wasPan = this.#panning;
     this.#panning = false;
-    this.#active = false;
     const discardKind = this.#cancelled || this.#multiTouch;
     this.setState({
       active: false,
@@ -536,7 +551,7 @@ export class GestureController extends BaseController<GestureEvents> {
     metrics: { scale: number; rotation: number }
   ) {
     if (!this.enabled("pinch")) return;
-    const [a, b] = [...this.#pointers.values()];
+    const [dx, dy] = this.pointerDelta();
     this.setState({
       kind: "pinch",
       x: e.clientX,
@@ -551,8 +566,8 @@ export class GestureController extends BaseController<GestureEvents> {
       phase,
       scale: metrics.scale,
       rotation: metrics.rotation,
-      distanceX: a && b ? b.x - a.x : 0,
-      distanceY: a && b ? b.y - a.y : 0,
+      distanceX: dx,
+      distanceY: dy,
     } as never);
   }
 
@@ -574,11 +589,8 @@ export class GestureController extends BaseController<GestureEvents> {
     const vx = dx / dt;
     const vy = dy / dt;
     const total = Math.hypot(dx, dy);
-    const tapThresh = this.#options.tapThreshold ?? 10;
-    const swipeThresh = this.#options.swipeThreshold ?? 50;
-    const swipeVel = this.#options.swipeVelocity ?? 0.3;
 
-    if (total <= tapThresh) {
+    if (total <= (this.#options.tapThreshold ?? 10)) {
       const now = Date.now();
       const interval = this.#options.doubleTapInterval ?? 300;
       const isDouble = now - this.#lastTap < interval;
@@ -590,7 +602,11 @@ export class GestureController extends BaseController<GestureEvents> {
       }
       // A pan already reported the drag, so `kind` is only advanced to `swipe`
       // when a gesture travelled far enough and fast enough to qualify.
-    } else if (total >= swipeThresh && Math.hypot(vx, vy) >= swipeVel && this.enabled("swipe")) {
+    } else if (
+      total >= (this.#options.swipeThreshold ?? 50) &&
+      Math.hypot(vx, vy) >= (this.#options.swipeVelocity ?? 0.3) &&
+      this.enabled("swipe")
+    ) {
       const dir = directionFor(dx, dy);
       this.setState({ kind: "swipe", direction: dir });
       this.emitBoth("swipe", {
@@ -615,6 +631,8 @@ export class GestureController extends BaseController<GestureEvents> {
     const unit = wheelUnit(e.deltaMode);
     const deltaX = e.deltaX * unit;
     const deltaY = e.deltaY * unit;
+    // The tilt axis rides the detail only: nothing in the recognizer computes
+    // from it, so it does not belong in the continuously-mirrored state.
     const deltaZ = e.deltaZ * unit;
 
     // Cancelled before the emit so a consumer that throws cannot leave the
@@ -624,11 +642,12 @@ export class GestureController extends BaseController<GestureEvents> {
     // Only Y drives the scale. Wheel down (deltaY > 0) zooms out, which is
     // why the exponent is negated; X is a scroll, not a zoom, and Z is
     // ignored because nothing on a trackpad reports it.
-    const factor = this.#options.wheelScaleFactor ?? 0.002;
     this.#wheelAccumulator += deltaY;
-    const scale = Math.max(Math.exp(-this.#wheelAccumulator * factor), WHEEL_MIN_SCALE);
+    const scale = Math.max(
+      Math.exp(-this.#wheelAccumulator * (this.#options.wheelScaleFactor ?? 0.002)),
+      WHEEL_MIN_SCALE
+    );
 
-    this.#active = true;
     this.setState({
       active: true,
       kind: "wheel",
@@ -642,18 +661,10 @@ export class GestureController extends BaseController<GestureEvents> {
       scale,
       deltaX,
       deltaY,
-      deltaZ,
     });
     this.emitBoth("wheel", {
       kind: "wheel",
-      x: e.clientX,
-      y: e.clientY,
-      target: e.target,
-      button: 0,
-      buttons: 0,
-      pointerType: "mouse",
-      state: this.#state,
-      originalEvent: e,
+      ...baseFields(e, this.#state),
       phase: "move",
       deltaX,
       deltaY,
@@ -684,8 +695,7 @@ export class GestureController extends BaseController<GestureEvents> {
     this.#wheelAccumulator = 0;
     // `active` stays true for the whole session so the store mirror keeps
     // streaming the cursor position, which is the anchor point of the zoom.
-    this.#active = false;
-    this.setState({ active: false, kind: null, scale: 1, deltaX: 0, deltaY: 0, deltaZ: 0 });
+    this.setState({ active: false, kind: null, scale: 1, deltaX: 0, deltaY: 0 });
   }
 
   protected teardown(): void {

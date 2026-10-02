@@ -97,6 +97,71 @@ afterEach(() => {
 
 const store = () => Alpine.store("gesture") as GestureStore;
 
+/**
+ * Every key the state declares, spelled out here on purpose.
+ *
+ * The store's accessors are generated from that list, so a key dropped from
+ * the generation would be readable as `undefined` from `$store.gesture` and
+ * nothing else would fail. This is the test that makes the mirror's own-key
+ * set a contract rather than a side effect.
+ */
+const STATE_KEYS = [
+  "active",
+  "kind",
+  "x",
+  "y",
+  "distanceX",
+  "distanceY",
+  "totalDistance",
+  "velocityX",
+  "velocityY",
+  "pointerCount",
+  "scale",
+  "rotation",
+  "direction",
+  "button",
+  "buttons",
+  "pointerType",
+  "deltaX",
+  "deltaY",
+];
+
+describe("the store mirror", () => {
+  test("carries every state key plus cancel, and nothing else", () => {
+    const own = Object.getOwnPropertyNames(store());
+
+    // Compared as a set: the order is an implementation detail, the keys are
+    // the contract.
+    expect(new Set(own)).toEqual(new Set([...STATE_KEYS, "cancel"]));
+    expect(own).toHaveLength(STATE_KEYS.length + 1);
+  });
+
+  test("each state key is a read-through own accessor Alpine can walk", () => {
+    for (const key of STATE_KEYS) {
+      const descriptor = Object.getOwnPropertyDescriptor(store(), key);
+      expect(descriptor?.enumerable, `${key} must be enumerable`).toBe(true);
+      expect(typeof descriptor?.get, `${key} must be a getter`).toBe("function");
+      // Nothing writes through the store: the mirror follows the recognizer.
+      expect(descriptor?.set, `${key} must not have a setter`).toBeUndefined();
+    }
+  });
+
+  test("reads live controller state through the generated accessors", async () => {
+    const el = html(`
+      <div x-data="{}"><div id="surface" x-gesture.tap="() => {}"></div></div>
+    `);
+    mount(el as HTMLElement);
+    await settled();
+
+    // The values come from the live controller, through the generated accessors.
+    tap(find(el, "#surface"), [12, 34]);
+    await settled();
+
+    expect(store().x).toBe(12);
+    expect(store().y).toBe(34);
+  });
+});
+
 describe("x-gesture on multiple elements", () => {
   test("every surface fires, not only the last one bound", async () => {
     const el = html(`
@@ -309,7 +374,9 @@ describe("$store.gesture", () => {
     expect(store().y).toBe(34);
     expect(store().deltaX).toBe(2);
     expect(store().deltaY).toBe(50);
-    expect(store().deltaZ).toBe(0);
+    // The tilt axis is not mirrored: it drives nothing in the recognizer, so
+    // it rides the `wheel` detail and not the state.
+    expect("deltaZ" in store()).toBe(false);
     expect(store().scale).toBeLessThan(1);
   });
 
