@@ -191,33 +191,85 @@ jobs:
           echo "Resolved '$TAG' to $dir at $version."
 
       - name: Publish ${{ steps.resolve.outputs.dir }}
+        id: publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           # A prerelease must never take the `latest` dist-tag: that is the tag every consumer's
           # default install resolves, so publishing a pre-release there would hand it to everyone
           # unpinned. `next` is the conventional dist-tag for this, and only on a prerelease.
           PUBLISH_ARGS: ${{ github.event.release.prerelease && '--tag next' || '' }}
+          PACKAGE: ${{ steps.resolve.outputs.name }}
+          VERSION: ${{ steps.resolve.outputs.version }}
         run: |
+          # `set -e` is deliberately NOT set here. This step inspects pnpm's exit status to tell a
+          # rate limit apart from a real failure, and `-e` would abort before it could.
+          set -uo pipefail
+
+          # Idempotency, before anything is sent to the registry. npm's limiter is an abuse
+          # limiter, and every wasted attempt spends from a budget that is already close to empty
+          # after a full 38-package release. A re-run of a run whose publish already landed must not
+          # ask the registry to create it again.
+          if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PACKAGE@$VERSION is already on the registry. Nothing to publish."
+            echo "outcome=already-published" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # The filter takes the package NAME, never the directory path. A pnpm filter that matches
           # nothing is not an error: `pnpm publish --filter packages/toast` selects zero projects,
           # prints nothing and exits 0, so a path-shaped selector would turn this into a green run
           # that publishes nothing at all. pnpm only accepts a path selector with a `./` prefix.
-          args=(--filter "${{ steps.resolve.outputs.name }}"
+          args=(--filter "$PACKAGE"
                 --access public
                 --no-git-checks
                 --provenance)
           if [ -n "$PUBLISH_ARGS" ]; then
             args+=($PUBLISH_ARGS)
           fi
-          pnpm publish "${args[@]}"
+
+          # Retry on 429 only, with backoff.
+          #
+          # npm publishes no documented numeric quota. Its limiter is an abuse limiter, and it is
+          # far stricter for creating a new package name than for publishing a new version of an
+          # existing one: this repository published 24 of 38 names and the registry started
+          # refusing. Because the budget recovers on npm's schedule and not on ours, waiting is
+          # the only correct response, and waiting without a bound would hang the job forever.
+          #
+          # Any failure that is NOT a rate limit fails immediately, so a real error surfaces in
+          # seconds instead of behind six minutes of retries that were never going to help.
+          for attempt in 1 2 3 4 5; do
+            out="$(pnpm publish "${args[@]}" 2>&1)"
+            status=$?
+            printf '%s\n' "$out"
+            if [ $status -eq 0 ]; then
+              echo "outcome=published" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if ! printf '%s\n' "$out" | grep -qE '429|E429|rate limited|Too Many Requests'; then
+              echo "::error::Publishing $PACKAGE@$VERSION failed for a reason retrying cannot fix."
+              echo "outcome=failed" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::$PACKAGE@$VERSION still rate limited after 5 attempts."
+              echo "outcome=rate-limited" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            wait=$((attempt * 90))
+            echo "::notice::Rate limited. Attempt $attempt failed; waiting ${wait}s."
+            sleep "$wait"
+          done
 
       # A publish that needs a human to correlate it back to the repository is a publish nobody
       # will audit later.
       - name: Summary
+        env:
+          OUTCOME: ${{ steps.publish.outputs.outcome }}
         run: |
-          echo "### Published ${{ steps.resolve.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "### ${{ steps.publish.outputs.outcome == 'already-published' && 'Already published' || 'Published' }} ${{ steps.resolve.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Package: \`${{ steps.resolve.outputs.dir }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Version: \`${{ steps.resolve.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tag: \`${{ github.event.release.tag_name }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Prerelease: \`${{ github.event.release.prerelease }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Outcome: \`${{ steps.publish.outputs.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
