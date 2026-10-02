@@ -53,11 +53,9 @@ jobs:
           # refs are `dependabot/pnpm/<pkg>-<version>` and carry no type segment, so every one of its
           # pull requests would fail the name check regardless of what the PR gate does.
           #
-          # `SiddharthaGF` is the repository's only collaborator. GitHub does not let an author
-          # approve their own pull request, so requiring one approval would make every human pull
-          # request here permanently unmergeable. A single-maintainer repository cannot run an
-          # approval gate at all; exempting the maintainer is what makes the remaining gate
-          # (branch name) usable rather than something that only ever reports red.
+          # The maintainer is deliberately NOT in this list. Self-approval is handled by the
+          # `master` ruleset's bypass actor instead, which lets them merge their own pull request
+          # without turning off the contribution gates for every pull request they open.
           #
           # `AiluraKitty` is the account `RELEASE_PLEASE_TOKEN` belongs to, and therefore the author
           # of every pull request release-please opens. Those pull requests cannot pass this gate by
@@ -65,7 +63,7 @@ jobs:
           # segment, and their body is a generated changelog with no linked issue. The exemption is
           # safe here because that account is a machine identity — it is not used to open pull
           # requests by hand, so nothing a person wrote is exempted by it.
-          skip-actors: 'dependabot[bot], AiluraKitty, SiddharthaGF'
+          skip-actors: 'dependabot[bot], AiluraKitty'
 
   pull-request-policy:
     name: Pull request policy
@@ -84,9 +82,6 @@ jobs:
           title-min: 15
           title-max: 72
           approved-label: status:approved
-          # `SiddharthaGF` is the only collaborator, and GitHub forbids self-approval, so a
-          # required approval could never be given. See the note on the branch-name job above.
-          #
           # `AiluraKitty` opens release-please's pull requests. They satisfy none of the five checks
           # here and cannot be made to: no issue is linked, the only label release-please applies is
           # its own `autorelease: pending`, and the body is a generated changelog rather than the
@@ -96,7 +91,7 @@ jobs:
           # The exemption covers the whole action, not one check — the action has no per-check or
           # per-label escape hatch. Narrowing it to individual checks is not possible with this
           # action, so the trade is accepted: nothing authored by a person runs through this account.
-          skip-actors: 'dependabot[bot], AiluraKitty, SiddharthaGF'
+          skip-actors: 'dependabot[bot], AiluraKitty'
 
   triage:
     name: Issue triage
