@@ -39,11 +39,20 @@ const WHEEL_PAGE_HEIGHT = 100;
 /**
  * Floor for the accumulated wheel scale.
  *
- * `exp()` never returns `0`, but a long session of hard scrolling drives the
- * exponent down far enough for the scale to stop being a usable transform.
- * Clamping keeps a runaway session inside a range a consumer can render.
+ * `exp()` never returns `0`, but the accumulator is unbounded and a long
+ * trackpad pinch-out is not a few discrete notches: it is a sustained stream
+ * of small deltas that drives the exponent down until the scale stops being a
+ * usable transform. At the original 0.001 the box collapsed to nothing and,
+ * because the consumer carries that scale into the next session, zooming back
+ * in meant multiplying by 1.2 on top of a number already near zero — which
+ * reads as a stuck control rather than a slow one.
+ *
+ * This is a runaway guard for one session, not a policy bound. What a surface
+ * considers its minimum and maximum zoom is the consumer's decision: `scale`
+ * is session-relative, so a session starting from a zoomed-in base can
+ * legitimately want a factor below this.
  */
-const WHEEL_MIN_SCALE = 0.001;
+const WHEEL_MIN_SCALE = 0.1;
 
 /**
  * The idle state every controller starts from, with an optional patch on top.

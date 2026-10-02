@@ -103,12 +103,17 @@ const WHEEL_CODE = `x-data="{
     this.ox = ((d.x - r.left) / r.width) * 100
     this.oy = ((d.y - r.top) / r.height) * 100
   },
+  // Clamp the live zoom, not just the committed one, so the box stops at the
+  // bound instead of snapping to it when the session ends.
+  clamp(z) {
+    return Math.min(3, Math.max(0.5, z))
+  },
 }"
 
 // Two effects because there is no 'end' event for a wheel: the session ending
 // is an absence of input. While the session runs, scale is the live zoom; the
 // moment it is gone, the zoom you are looking at becomes the next base.
-x-effect="if (\u0024store.gesture.kind === 'wheel') zoom = base * \u0024store.gesture.scale"
+x-effect="if (\u0024store.gesture.kind === 'wheel') zoom = clamp(base * \u0024store.gesture.scale)"
 x-effect="if (!\u0024store.gesture.active) base = zoom"
 
 <div x-ref="surface" x-gesture.wheel.prevent="handleWheel" class="flex h-40 touch-none select-none items-center justify-center overflow-hidden rounded-md border-2 border-dashed">
@@ -276,8 +281,17 @@ x-effect="if (!\u0024store.gesture.active) base = zoom"
 					this.ox = ((d.x - r.left) / r.width) * 100
 					this.oy = ((d.y - r.top) / r.height) * 100
 				},
+				// The same 0.5–3 range the pinch example above uses, applied to the
+				// live zoom so the box stops at the bound instead of snapping to
+				// it when the session ends. Without a bound a long trackpad
+				// pinch-out compounds session after session: the box shrinks to
+				// nothing and then crawls back on zoom-in, which reads as a stuck
+				// control rather than a slow one.
+				clamp(z) {
+					return Math.min(3, Math.max(0.5, z))
+				},
 			}"
-			x-effect="if ($store.gesture.kind === 'wheel') zoom = base * $store.gesture.scale"
+			x-effect="if ($store.gesture.kind === 'wheel') zoom = clamp(base * $store.gesture.scale)"
 			x-effect="if (!$store.gesture.active) base = zoom"
 			class="rounded-lg border bg-[var(--ios-bg-secondary)] p-6"
 		>
