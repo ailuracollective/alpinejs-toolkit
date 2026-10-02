@@ -27,6 +27,7 @@ const DECLARED_EVENTS = [
   "swipe",
   "pan",
   "pinch",
+  "wheel",
 ] as const satisfies ReadonlyArray<keyof GestureEvents>;
 
 /** Compile-time evidence that `change` still carries the declared detail. */

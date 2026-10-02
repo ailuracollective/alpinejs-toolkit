@@ -208,6 +208,35 @@ describe("pointercancel", () => {
   });
 });
 
+describe("wheel during a pointer interaction", () => {
+  test("a wheel turn while a pinch runs leaves it alone", () => {
+    // The controller opted into both kinds explicitly: the wheel is opt-in,
+    // so this test has to ask for it rather than inherit it.
+    const { controller, element } = setup({ gestures: ["pinch", "wheel"] });
+    const kinds = recorder(controller);
+    const emit = finger(element, 1);
+    const second = finger(element, 2);
+
+    emit("pointerdown", 0, 0);
+    second("pointerdown", 100, 0);
+    emit("pointermove", -50, 0);
+    const pinchScale = controller.state.scale;
+
+    const scroll = new WheelEvent("wheel", { bubbles: true, deltaY: -100 });
+    element.dispatchEvent(scroll);
+
+    // Corrupting the pinch baseline here would make a two-finger zoom snap to
+    // whatever the mouse wheel last did.
+    expect(kinds).not.toContain("wheel");
+    expect(controller.state.scale).toBe(pinchScale);
+    expect(controller.state.kind).toBe("pinch");
+    expect(scroll.defaultPrevented).toBe(false);
+
+    second("pointermove", 150, 0);
+    expect(controller.state.scale).toBeCloseTo(2, 1);
+  });
+});
+
 describe("single-pointer lifecycle", () => {
   test("pan reports start, then move, then end", () => {
     const { controller, element } = setup();

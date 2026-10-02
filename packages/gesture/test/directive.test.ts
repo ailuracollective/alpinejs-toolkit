@@ -66,6 +66,23 @@ function tap(target: Element, [x, y] = [10, 10] as [number, number], pointerId =
   target.dispatchEvent(pointer("pointerup", at([x, y], pointerId)));
 }
 
+/**
+ * One wheel tick. happy-dom's `WheelEvent` drops the inherited `clientX` /
+ * `clientY` / `ctrlKey` fields, so they are assigned the way a browser sets
+ * them before dispatch.
+ */
+function wheel(
+  target: Element,
+  init: WheelEventInit & { x?: number; y?: number } = {}
+): WheelEvent {
+  const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init });
+  const fields = event as unknown as Record<string, unknown>;
+  fields["clientX"] = init.x ?? 0;
+  fields["clientY"] = init.y ?? 0;
+  target.dispatchEvent(event);
+  return event;
+}
+
 beforeAll(() => {
   start(gesturePlugin());
 });
@@ -207,6 +224,115 @@ describe("$store.gesture", () => {
 
     expect(scope<{ taps: number }>(el).taps).toBe(0);
     expect(store().active).toBe(false);
+  });
+});
+
+describe("x-gesture.wheel", () => {
+  test("the modifier alone is enough to turn the wheel on", async () => {
+    const el = html(`
+      <div x-data="{ seen: null, onWheel(d) { this.seen = d } }">
+        <div id="surface" x-gesture.wheel="onWheel"></div>
+      </div>
+    `);
+    mount(el as HTMLElement);
+    await settled();
+
+    wheel(find(el, "#surface"), { deltaY: -100, x: 30, y: 40 });
+    await settled();
+
+    const seen = scope<{ seen: { kind: string; scale: number; deltaY: number } | null }>(el).seen;
+    expect(seen?.kind).toBe("wheel");
+    expect(seen?.deltaY).toBe(-100);
+    expect(seen?.scale).toBeGreaterThan(1);
+  });
+
+  test("a surface without the modifier ignores the wheel", async () => {
+    const el = html(`
+      <div x-data="{ taps: 0, onTap() { this.taps++ } }">
+        <div id="surface" x-gesture.tap="onTap"></div>
+      </div>
+    `);
+    mount(el as HTMLElement);
+    await settled();
+    const surface = find(el, "#surface");
+
+    // The tap gives the shared store a known state, so the assertion below is
+    // about this surface's wheel never firing, not about a leftover session.
+    tap(surface);
+    await settled();
+    expect(store().kind).toBe("tap");
+
+    wheel(surface, { deltaY: -100 });
+    await settled();
+
+    expect(scope<{ taps: number }>(el).taps).toBe(1);
+    expect(store().kind).toBe("tap");
+    expect(store().scale).toBe(1);
+    expect(store().deltaY).toBe(0);
+  });
+
+  test("a shared controller survives while a wheel binding is still mounted", async () => {
+    const el = html(`
+      <div x-data="{ log: [] }">
+        <div id="surface" x-gesture.tap="log.push('tap')" x-gesture.wheel="log.push('wheel')"></div>
+      </div>
+    `);
+    mount(el as HTMLElement);
+    await settled();
+    const surface = find(el, "#surface");
+
+    tap(surface);
+    wheel(surface, { deltaY: -100 });
+    wheel(surface, { deltaY: -100 });
+    await settled();
+
+    expect([...scope<{ log: string[] }>(el).log]).toEqual(["tap", "wheel", "wheel"]);
+  });
+});
+
+describe("$store.gesture", () => {
+  test("mirrors the wheel deltas and scale", async () => {
+    const el = html(`
+      <div>
+        <div id="surface" x-gesture.wheel="() => {}"></div>
+      </div>
+    `);
+    mount(el as HTMLElement);
+    await settled();
+
+    wheel(find(el, "#surface"), { deltaX: 2, deltaY: 50, x: 12, y: 34 });
+    await settled();
+
+    expect(store().active).toBe(true);
+    expect(store().kind).toBe("wheel");
+    expect(store().x).toBe(12);
+    expect(store().y).toBe(34);
+    expect(store().deltaX).toBe(2);
+    expect(store().deltaY).toBe(50);
+    expect(store().deltaZ).toBe(0);
+    expect(store().scale).toBeLessThan(1);
+  });
+
+  test("cancel() ends the wheel session", async () => {
+    const el = html(`
+      <div>
+        <div id="surface" x-gesture.wheel="() => {}"></div>
+      </div>
+    `);
+    mount(el as HTMLElement);
+    await settled();
+    const surface = find(el, "#surface");
+
+    wheel(surface, { deltaY: -100 });
+    await settled();
+    expect(store().scale).toBeGreaterThan(1);
+
+    store().cancel();
+    await settled();
+
+    expect(store().active).toBe(false);
+    expect(store().scale).toBe(1);
+    expect(store().deltaY).toBe(0);
   });
 });
 

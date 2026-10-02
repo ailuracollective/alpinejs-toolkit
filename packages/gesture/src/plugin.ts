@@ -3,7 +3,13 @@ import { resolveStoreKey } from "@ailura/alpinejs-core/registration";
 import type { Alpine } from "alpinejs";
 
 import { GestureController } from "./controller";
-import type { GestureOptions, GestureRecognizedDetail, GestureState, GestureStore } from "./types";
+import type {
+  GestureKind,
+  GestureOptions,
+  GestureRecognizedDetail,
+  GestureState,
+  GestureStore,
+} from "./types";
 import { DEFAULT_GESTURE_DIRECTIVE_KEY, DEFAULT_GESTURE_STORE_KEY } from "./types";
 
 const packageName = "@ailura/alpinejs-gesture";
@@ -32,6 +38,9 @@ function emptyState(): GestureState {
     button: 0,
     buttons: 0,
     pointerType: "",
+    deltaX: 0,
+    deltaY: 0,
+    deltaZ: 0,
   };
 }
 
@@ -113,6 +122,15 @@ export function gesturePlugin(options: GestureOptions = {}): (alpine: Alpine) =>
       get pointerType() {
         return view["pointerType"] as GestureState["pointerType"];
       },
+      get deltaX() {
+        return view["deltaX"] as GestureState["deltaX"];
+      },
+      get deltaY() {
+        return view["deltaY"] as GestureState["deltaY"];
+      },
+      get deltaZ() {
+        return view["deltaZ"] as GestureState["deltaZ"];
+      },
       cancel: () => focused?.cancel(),
     };
 
@@ -143,6 +161,12 @@ export function gesturePlugin(options: GestureOptions = {}): (alpine: Alpine) =>
 
         const binding = bind(el);
         const { controller } = binding;
+        // The modifier is the opt-in: `x-gesture.wheel="..."` on its own must
+        // turn the wheel on for this element. It is a union over whatever the
+        // plugin was configured with, so it can only add, never narrow — and
+        // `wheel` is deliberately absent from the controller's default set, so
+        // this call is the only thing that attaches that listener.
+        controller.enableGestures([...kinds] as GestureKind[]);
         binding.refs += 1;
 
         // `evaluateLater` auto-evaluates a function result: the handler is

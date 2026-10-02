@@ -9,4 +9,5 @@ export interface GestureEvents extends Record<string, unknown[]> {
   swipe: [GestureRecognizedDetail];
   pan: [GestureRecognizedDetail];
   pinch: [GestureRecognizedDetail];
+  wheel: [GestureRecognizedDetail];
 }

@@ -1,7 +1,7 @@
 import type { Alpine } from "alpinejs";
 
-/** Recognized gesture kind. */
-export type GestureKind = "tap" | "doubletap" | "longpress" | "swipe" | "pan" | "pinch";
+/** Recognized gesture kind. `wheel` is opt-in: see `GestureController.enableGestures`. */
+export type GestureKind = "tap" | "doubletap" | "longpress" | "swipe" | "pan" | "pinch" | "wheel";
 
 export type GestureDirection = "up" | "down" | "left" | "right" | "none";
 export type GesturePhase = "start" | "move" | "end";
@@ -26,6 +26,9 @@ export interface GestureState {
   readonly button: GestureMouseButton;
   readonly buttons: number;
   readonly pointerType: GesturePointerTypeName;
+  readonly deltaX: number;
+  readonly deltaY: number;
+  readonly deltaZ: number;
 }
 
 export interface GestureOptions {
@@ -40,6 +43,8 @@ export interface GestureOptions {
   readonly panThreshold?: number;
   readonly preventDefault?: boolean;
   readonly mouseButtons?: readonly GestureMouseButton[];
+  readonly wheelScaleFactor?: number;
+  readonly wheelIdleDelay?: number;
   readonly storeKey?: string;
   readonly directiveKey?: string;
 }
@@ -84,6 +89,16 @@ export interface GesturePinchDetail extends GestureEventBase<"pinch"> {
   readonly distanceY: number;
 }
 
+export interface GestureWheelDetail extends GestureEventBase<"wheel"> {
+  readonly phase: GesturePhase;
+  readonly deltaX: number;
+  readonly deltaY: number;
+  readonly deltaZ: number;
+  readonly deltaMode: number;
+  readonly ctrlKey: boolean;
+  readonly scale: number;
+}
+
 export interface GestureDetailMap {
   readonly tap: GestureTapDetail;
   readonly doubletap: GestureDoubleTapDetail;
@@ -91,6 +106,7 @@ export interface GestureDetailMap {
   readonly swipe: GestureSwipeDetail;
   readonly pan: GesturePanDetail;
   readonly pinch: GesturePinchDetail;
+  readonly wheel: GestureWheelDetail;
 }
 
 export interface GestureChangeDetail {
@@ -99,7 +115,7 @@ export interface GestureChangeDetail {
 }
 export type GestureRecognizedDetail = GestureDetailMap[GestureKind] & {
   readonly state: GestureState;
-  readonly originalEvent: PointerEvent | null;
+  readonly originalEvent: PointerEvent | WheelEvent | null;
 };
 
 export type GestureStore = {
