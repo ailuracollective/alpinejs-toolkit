@@ -80,17 +80,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Required, not optional. `pnpm publish` does not build: pnpm 12 implements publish natively
-      # and never shells out to the npm CLI, and the only lifecycle hook it runs is `prepack`. No
-      # package in this repository defines one. Without this step `dist/` would be empty and the
-      # published tarball would contain no build output at all, and the guard below would stop it.
-      # `pnpm run build`, not a bare `vp`: `vp` is a root devDependency, so its binary is in
-      # `node_modules/.bin` and only `pnpm run` puts that on the PATH of a `run:` step.
-      - run: pnpm run build
-
       # Resolves the tag to a package directory and a version, and refuses to publish anything it
       # cannot fully corroborate. Every failure here is a hard stop: publishing a wrong package, a
       # wrong version, or an empty tarball is not recoverable from npm, so a stopped run is cheap.
+      #
+      # This runs BEFORE the build, not after it, and that order is the point of the change. The
+      # whole of what it needs is `release-please-config.json` and the `packages/*/package.json`
+      # files: guards 1 and 2 read names and version strings and never touch `dist/`. Only guard 3
+      # needs build output, and it moved down to sit directly after the build.
+      #
+      # The previous order could not scope the build, because the build is what made the name
+      # resolvable in the first place. `pnpm run build` here is `vp run --recursive build`, so every
+      # publish run built all 41 workspaces -- including `@ailura/docs`, which is never published --
+      # to pack one package. Measured on a cold tree: 32s recursive against 2.3s scoped, and the
+      # scoped output is byte-identical, verified by sha256 across all 56 emitted files for a
+      # package with a single export entry and for `core`, which has thirteen.
       - id: resolve
         name: Resolve package from release tag
         env:
@@ -174,14 +178,8 @@ jobs:
             exit 1
           fi
 
-          # Guard 3: the build produced nothing. `pnpm publish` packs whatever is in the directory,
-          # and `dist/` is gitignored, so an empty or absent `dist/` yields a tarball that installs
-          # and then fails at import. Failing here instead leaves an unpublished, obviously broken
-          # release that can be re-cut.
-          if [ -z "$(ls -A "$dir/dist" 2>/dev/null)" ]; then
-            echo "::error::'$dir/dist' is missing or empty; the build step produced no output."
-            exit 1
-          fi
+          # Guard 3 lives below, in its own step, because it is the one guard that needs build
+          # output and this step now runs before the build. It is unchanged in substance.
 
           echo "dir=$dir" >> "$GITHUB_OUTPUT"
           # The manifest's own `name`, never the tag component: the publish step filters pnpm by
@@ -189,6 +187,36 @@ jobs:
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Resolved '$TAG' to $dir at $version."
+
+      # Required, not optional. `pnpm publish` does not build: pnpm 12 implements publish natively
+      # and never shells out to the npm CLI, and the only lifecycle hook it runs is `prepack`. No
+      # package in this repository defines one. Without this step `dist/` would be empty and the
+      # published tarball would contain no build output at all, and the guard below would stop it.
+      # `pnpm exec`, not a bare `vp`: `vp` is a root devDependency, so its binary is in
+      # `node_modules/.bin` and only `pnpm run`/`pnpm exec` put that on the PATH of a `run:` step.
+      #
+      # Scoped to one package and its workspace dependencies rather than the whole monorepo. The
+      # `...` suffix is load-bearing: it pulls in the dependency closure, and without it a package
+      # whose types resolve through a workspace `exports` map can compile against a `dist/` that
+      # was never built. Filters are package NAMES here, not paths -- `--filter packages/gesture`
+      # matches nothing at all and exits 0, which would be a green run that built nothing.
+      - name: Build ${{ steps.resolve.outputs.dir }}
+        run: pnpm exec vp run --filter "${{ steps.resolve.outputs.name }}..." build
+
+      # Guard 3, moved here from the resolve step: the build produced nothing. `pnpm publish` packs
+      # whatever is in the directory, and `dist/` is gitignored, so an empty or absent `dist/`
+      # yields a tarball that installs and then fails at import. Failing here instead leaves an
+      # unpublished, obviously broken release that can be re-cut.
+      - name: Guard build output
+        env:
+          DIR: ${{ steps.resolve.outputs.dir }}
+        run: |
+          set -euo pipefail
+          if [ -z "$(ls -A "$DIR/dist" 2>/dev/null)" ]; then
+            echo "::error::'$DIR/dist' is missing or empty; the build step produced no output."
+            exit 1
+          fi
+          echo "'$DIR/dist' is not empty."
 
       - name: Publish ${{ steps.resolve.outputs.dir }}
         env:
