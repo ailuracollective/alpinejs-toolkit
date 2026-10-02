@@ -48,25 +48,31 @@ const GESTURES_CODE = `x-data="{
 // · a second tap is emitted as \`doubletap\` and NOT as a second \`tap\`, so
 //   handleTap runs once for a double tap, not twice.
 //
-// GestureOptions.preventDefault is declared but never read: no pointer event is
-// cancelled for you, so nothing here calls preventDefault.`;
+// Nothing here is cancelled for you: no pointer event is ever suppressed, so
+// touch-action: none is still your job. The wheel is the one exception, and it
+// takes the \`.prevent\` modifier rather than an option.`;
 
 const PINCH_CODE = `x-data="{
   lastGesture: 'none',
   pinchScale: 1,
-  pinchOrigin: 1,
   handlePinch(d) {
-    // d.phase is 'start' | 'move' | 'end'. The controller resets scale back to
-    // 1 when the last finger lifts, so without a value committed here the zoom
-    // could never accumulate across two pinches.
-    if (d.phase === 'end') {
-      this.pinchOrigin = this.pinchScale
-      this.lastGesture = 'pinch end'
-      return
-    }
-    const scale = d.scale ?? 1
-    this.pinchScale = Math.min(3, Math.max(0.5, this.pinchOrigin * scale))
-    this.lastGesture = scale > 1 ? 'pinch zoom in' : scale < 1 ? 'pinch zoom out' : 'pinch start'
+    // d.phase is 'start' | 'move' | 'end'. Bind the transform to
+    // d.state.committedScale: it is the absolute zoom, every pinch before this
+    // one folded into this one, so two pinches compound with nothing carried
+    // over by hand. Every detail carries the whole state, so the number here is
+    // the same one $store.gesture.committedScale shows. d.scale is this pinch
+    // alone and is back to 1 the moment the fingers lift, which is why it only
+    // names the direction here.
+    this.pinchScale = this.clamp(d.state.committedScale)
+    this.lastGesture = d.phase === 'end'
+      ? 'pinch end'
+      : d.scale > 1 ? 'pinch zoom in' : d.scale < 1 ? 'pinch zoom out' : 'pinch start'
+  },
+  // The zoom range is this app's policy, not the recognizer's. scaleRange is a
+  // controller option and x-gesture carries no options at all, so a surface
+  // driven from markup has to clamp the number itself.
+  clamp(z) {
+    return Math.min(3, Math.max(0.5, z))
   },
 }"
 
@@ -81,8 +87,76 @@ const PINCH_CODE = `x-data="{
 $store.gesture.active         // true while a pointer is down
 $store.gesture.kind           // 'pinch'
 $store.gesture.pointerCount   // 2
-$store.gesture.scale
+$store.gesture.scale          // this pinch alone, 1 once the fingers lift
+$store.gesture.committedScale // the absolute zoom, across every pinch so far
 $store.gesture.cancel();      // aborts the interaction in progress`;
+
+const WHEEL_CODE = `x-data="{
+  zoom: 1,
+  lastGesture: 'none',
+  ox: 50,
+  oy: 50,
+  handleWheel(d) {
+    // Every tick is phase 'move'; one 'end' closes the session, wheelIdleDelay
+    // after the last tick. It arrives at rest — scale back to 1, deltas at 0 —
+    // and d.state.committedScale already holds the zoom the session reached, so
+    // there is nothing to commit by hand and nothing to poll for.
+    if (d.phase === 'end') {
+      this.lastGesture = 'wheel session end'
+      return
+    }
+    // The anchor is measured against the element that is transformed, so it
+    // has to be #frame and not #surface — the gesture is on the surface, but
+    // the scale is applied to the box inside it. In percent, too: px would go
+    // stale as soon as the box changes size.
+    const r = this.$refs.frame.getBoundingClientRect()
+    this.ox = ((d.x - r.left) / r.width) * 100
+    this.oy = ((d.y - r.top) / r.height) * 100
+    // d.state.committedScale is the absolute zoom: every session before this
+    // one is already folded in, so a second burst compounds on the first by
+    // itself.
+    this.zoom = this.clamp(d.state.committedScale)
+    this.lastGesture = d.scale > 1 ? 'wheel zoom in' : d.scale < 1 ? 'wheel zoom out' : 'wheel'
+  },
+  // The same 0.5–3 range the pinch example above uses, applied to the live
+  // zoom so the box stops at the bound instead of snapping to it when the
+  // session ends. The range is the app's policy, and x-gesture carries no
+  // options, so it cannot come from scaleRange here.
+  clamp(z) {
+    return Math.min(3, Math.max(0.5, z))
+  },
+}"
+
+// No x-effect, and nothing to poll. The end of a wheel session used to be the
+// absence of input, so this example once watched \`active\` with an effect and
+// committed a base of its own when it flipped; the end is an event now, and the
+// handler above sees it as a \`wheel\` with phase 'end'.
+<div x-ref="surface" x-gesture.wheel.prevent="handleWheel" class="flex h-40 touch-none select-none items-center justify-center overflow-hidden rounded-md border-2 border-dashed">
+  <!-- Not transformed, and the same size as the box below: measuring it gives
+       the untransformed geometry that transform-origin resolves against. -->
+  <div x-ref="frame" class="flex h-24 w-40 items-center justify-center">
+    <div x-bind:style="{ transform: 'scale(' + zoom + ')', transformOrigin: ox + '% ' + oy + '%' }" class="flex h-24 w-40 items-center justify-center rounded-md border">
+      <span x-text="'×' + zoom.toFixed(2)"></span>
+    </div>
+  </div>
+</div>
+
+<span x-text="'zoom ×' + zoom.toFixed(2)"></span>
+
+// Two modifiers, and they do different jobs. \`wheel\` is the opt-in: without it
+// no wheel listener is attached at all. \`prevent\` makes that listener
+// non-passive, which is what lets the surface take the browser's own Ctrl+wheel
+// zoom away from the page — a passive listener cannot cancel anything, so
+// without it the page zooms instead of the box.
+//
+// Only Ctrl+wheel is recognized. A plain wheel is the user scrolling, so it
+// reaches the browser untouched and the page scrolls as usual, over this box
+// as much as anywhere else. A trackpad pinch arrives on this same path,
+// because browsers report it as a wheel with ctrlKey set.
+//
+// The recognizer owns the math — d.scale is exp(-ΣdeltaY × wheelScaleFactor)
+// accumulated over the session, and d.state.committedScale is that folded into
+// the zoom from every session before it — and this demo only has to apply it.`;
 ---
 
 <DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
@@ -151,25 +225,23 @@ $store.gesture.cancel();      // aborts the interaction in progress`;
 	</DemoExample>
 
 	<DemoExample
-		title="Pinch scales from the value committed at the previous pinch end"
-		note="The recognizer hands you a `scale` relative to the current gesture, and resets it to 1 on release — the accumulated zoom is yours to keep. The trailing readout is `$store.gesture`, which is how you show gesture state outside the surface that is being touched."
+		title="Each pinch starts from the zoom the last one left"
+		note="`d.state.committedScale` is the zoom this controller has accumulated across every pinch so far — absolute, where `d.scale` is one pinch alone and is back to 1 when the fingers lift. Every detail carries the whole state, so the handler and the `$store.gesture` readout read the same number, and the transform binds straight to it with nothing carried over by hand. The 0.5–3 clamp is this app's own policy: `x-gesture` carries no options, so `scaleRange` is not something markup can set. The trailing readout is `$store.gesture`, which is how you show gesture state outside the surface being touched."
 		code={PINCH_CODE}
 	>
 		<div
 			x-data="{
 				lastGesture: 'none',
 				pinchScale: 1,
-				pinchOrigin: 1,
 				handlePinch(d) {
-					if (d.phase === 'end') {
-						this.pinchOrigin = this.pinchScale
-						this.lastGesture = 'pinch end'
-						return
-					}
-					const scale = d.scale ?? 1
-					this.pinchScale = Math.min(3, Math.max(0.5, this.pinchOrigin * scale))
-					this.lastGesture = scale > 1 ? 'pinch zoom in' : scale < 1 ? 'pinch zoom out' : 'pinch start'
-				}
+					this.pinchScale = this.clamp(d.state.committedScale)
+					this.lastGesture = d.phase === 'end'
+						? 'pinch end'
+						: d.scale > 1 ? 'pinch zoom in' : d.scale < 1 ? 'pinch zoom out' : 'pinch start'
+				},
+				clamp(z) {
+					return Math.min(3, Math.max(0.5, z))
+				},
 			}"
 			class="rounded-lg border bg-[var(--ios-bg-secondary)] p-6"
 		>
@@ -201,8 +273,105 @@ $store.gesture.cancel();      // aborts the interaction in progress`;
 				<code>$store.gesture</code> follows the surface in use: active
 				<span x-text="$store.gesture.active"></span>, kind
 				<span x-text="$store.gesture.kind"></span>, fingers
-				<span x-text="$store.gesture.pointerCount"></span>, scale
-				<span x-text="$store.gesture.scale.toFixed(2)"></span>.
+				<span x-text="$store.gesture.pointerCount"></span>, this pinch's
+				<code>scale</code> <span x-text="$store.gesture.scale.toFixed(2)"></span>, and
+				the absolute <code>committedScale</code>
+				<span x-text="$store.gesture.committedScale.toFixed(2)"></span> — the
+				number bound to the transform above.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="Ctrl+wheel zooms at the cursor, and only because you asked for it"
+		note="`pinch` needs two fingers, so on a laptop it never fires. `.wheel` is the opt-in that attaches a wheel listener, and it recognizes Ctrl+wheel only — the browser's own page zoom, which is the one gesture worth claiming. `.prevent` attaches the listener non-passive so the surface can take that zoom instead of the page. A plain wheel is left alone, so the page still scrolls. The transform binds to `d.state.committedScale`, so bursts of wheel compound across sessions, and the end of a session is a `wheel` with `phase: 'end'` rather than the absence of input."
+		code={WHEEL_CODE}
+	>
+		<div
+			x-data="{
+				zoom: 1,
+				lastGesture: 'none',
+				ox: 50,
+				oy: 50,
+				handleWheel(d) {
+					if (d.phase === 'end') {
+						this.lastGesture = 'wheel session end'
+						return
+					}
+					const r = this.$refs.frame.getBoundingClientRect()
+					this.ox = ((d.x - r.left) / r.width) * 100
+					this.oy = ((d.y - r.top) / r.height) * 100
+					this.zoom = this.clamp(d.state.committedScale)
+					this.lastGesture = d.scale > 1 ? 'wheel zoom in' : d.scale < 1 ? 'wheel zoom out' : 'wheel'
+				},
+				// The same 0.5–3 range the pinch example above uses, applied to the
+				// live zoom so the box stops at the bound instead of snapping to
+				// it when the session ends. Without a bound a long trackpad
+				// pinch-out compounds session after session: the box shrinks to
+				// nothing and then crawls back on zoom-in, which reads as a stuck
+				// control rather than a slow one. x-gesture carries no options, so
+				// the range has to be clamped here rather than through scaleRange.
+				clamp(z) {
+					return Math.min(3, Math.max(0.5, z))
+				},
+			}"
+			class="rounded-lg border bg-[var(--ios-bg-secondary)] p-6"
+		>
+			<p class="text-sm font-medium mb-4">
+				Third surface: put the cursor over the box and turn the wheel with
+				<kbd>Ctrl</kbd> (<kbd>⌘</kbd> on macOS) held. The point under the
+				cursor is the point that stays put. Turn the wheel without the
+				modifier and the page just scrolls, exactly as it does anywhere
+				else on it.
+			</p>
+
+			<div
+				x-ref="surface"
+				x-gesture.wheel.prevent="handleWheel"
+				class="flex h-40 touch-none select-none items-center justify-center overflow-hidden rounded-md border-2 border-dashed"
+			>
+				<div x-ref="frame" class="flex h-24 w-40 items-center justify-center">
+					<div
+						x-bind:style="{ transform: 'scale(' + zoom + ')', transformOrigin: ox + '% ' + oy + '%' }"
+						class="flex h-24 w-40 items-center justify-center rounded-md border bg-[var(--ios-fill-quaternary)] text-xs text-[var(--ios-label-secondary)]"
+					>
+						<span x-text="'×' + zoom.toFixed(2)"></span>
+					</div>
+				</div>
+			</div>
+
+			<div class="mt-3 flex flex-wrap items-center gap-2">
+				<span class="text-sm">
+					zoom <span x-text="zoom.toFixed(2)"></span>, anchored at
+					<span x-text="ox.toFixed(0)"></span>%<span x-text="oy.toFixed(0)"></span>%
+				</span>
+				<Badge
+					variant="outline"
+					x-text="lastGesture"
+				></Badge>
+			</div>
+
+			<p class="mt-3 text-xs text-[var(--ios-label-secondary)]">
+				<code>wheel</code> is opt-in: without the <code>.wheel</code> modifier
+				no wheel listener is attached at all, so the package costs an existing
+				consumer nothing. <code>.prevent</code> attaches that listener
+				non-passive, which is the only way the surface can cancel the
+				browser's own Ctrl+wheel zoom — a passive listener cannot cancel
+				anything, so without it the page zooms instead of the box. Only
+				Ctrl+wheel is recognized: a plain wheel is the user scrolling, so it
+				reaches the browser untouched, and a trackpad pinch arrives here
+				unchanged because browsers report it as a wheel with
+				<code>ctrlKey</code> set. Two details worth copying: the transform
+				binds to <code>committedScale</code>, the zoom this controller has
+				accumulated across every session, so a second burst compounds on the
+				first without a base carried by hand; and the end of a session is an
+				event — one <code>wheel</code> with <code>phase: 'end'</code> after
+				<code>wheelIdleDelay</code> of silence, at rest, with
+				<code>committedScale</code> on the detail's state carrying what the
+				session contributed —
+				so nothing polls the store for the absence of input. The anchor is
+				measured against the element being transformed; the surface here is
+				only where the gesture lives.
 			</p>
 		</div>
 	</DemoExample>

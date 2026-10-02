@@ -2,6 +2,7 @@ import { BaseController } from "@ailura/alpinejs-core/controller";
 import { generateId } from "@ailura/alpinejs-core/ids";
 
 import type { GestureEvents } from "./events";
+import type { GestureRecognizedDetail } from "./types";
 import type {
   GestureKind,
   GestureOptions,
@@ -9,6 +10,14 @@ import type {
   GestureState,
   GestureDirection,
 } from "./types";
+
+/** The pointer events a recognizer needs, and the handler each one drives. */
+const POINTER_EVENTS = [
+  ["pointerdown", "handleDown"],
+  ["pointermove", "handleMove"],
+  ["pointerup", "handleUp"],
+  ["pointercancel", "handleCancel"],
+] as const;
 
 /** Every gesture recognized unless `options.gestures` narrows the list. */
 const ALL_GESTURES: readonly GestureKind[] = [
@@ -23,7 +32,37 @@ const ALL_GESTURES: readonly GestureKind[] = [
 /** Below this spread two pointers are treated as a single point (no scale jump). */
 const PINCH_MIN_DISTANCE = 1;
 
-function emptyState(): GestureState {
+/** Pixels per `WheelEvent` line, for the `deltaMode === 1` case. */
+const WHEEL_LINE_HEIGHT = 16;
+/** Pixels per `WheelEvent` page, for the `deltaMode === 2` case. */
+const WHEEL_PAGE_HEIGHT = 100;
+/**
+ * Floor for the accumulated wheel scale.
+ *
+ * `exp()` never returns `0`, but the accumulator is unbounded and a long
+ * trackpad pinch-out is not a few discrete notches: it is a sustained stream
+ * of small deltas that drives the exponent down until the scale stops being a
+ * usable transform. At the original 0.001 the box collapsed to nothing and,
+ * because the consumer carries that scale into the next session, zooming back
+ * in meant multiplying by 1.2 on top of a number already near zero — which
+ * reads as a stuck control rather than a slow one.
+ *
+ * This is a runaway guard for one session, not a policy bound. What a surface
+ * considers its minimum and maximum zoom is the consumer's decision: `scale`
+ * is session-relative, so a session starting from a zoomed-in base can
+ * legitimately want a factor below this.
+ */
+const WHEEL_MIN_SCALE = 0.1;
+
+/**
+ * The idle state every controller starts from, with an optional patch on top.
+ *
+ * The store mirror in `plugin.ts` reads its key list from this one literal, so
+ * a new state key only has to be added here to be mirrored as well. A caller
+ * that wants to start from idle and override a few fields says so with
+ * `patch`, rather than spreading the result and restating the keys.
+ */
+export function emptyState(patch?: Partial<GestureState>): GestureState {
   return {
     active: false,
     kind: null,
@@ -36,11 +75,15 @@ function emptyState(): GestureState {
     velocityY: 0,
     pointerCount: 0,
     scale: 1,
+    committedScale: 1,
     rotation: 0,
     direction: "none",
     button: 0,
     buttons: 0,
     pointerType: "",
+    deltaX: 0,
+    deltaY: 0,
+    ...patch,
   };
 }
 
@@ -62,17 +105,40 @@ function angleFor(dx: number, dy: number): number {
   return (Math.atan2(dy, dx) * 180) / Math.PI;
 }
 
-function baseFields(e: PointerEvent, state: GestureState) {
+/**
+ * The fields every gesture detail carries, whatever the input device.
+ *
+ * A `WheelEvent` is not a `PointerEvent`: it has no `pointerType` and no id,
+ * and no button is held while one is delivered. So the wheel reports
+ * `pointerType: "mouse"` with `button` and `buttons` at `0`, which is what
+ * keeps a consumer that switches on `pointerType` working unchanged.
+ */
+function baseFields(e: PointerEvent | WheelEvent, state: GestureState) {
+  const isPointer = "pointerType" in e;
   return {
     x: e.clientX,
     y: e.clientY,
     target: e.target,
-    button: e.button as 0,
-    buttons: e.buttons,
-    pointerType: e.pointerType,
+    button: (isPointer ? e.button : 0) as 0,
+    buttons: isPointer ? e.buttons : 0,
+    pointerType: isPointer ? e.pointerType : "mouse",
     state,
     originalEvent: e,
   };
+}
+
+/**
+ * Pixels per unit for a wheel `deltaMode`.
+ *
+ * A mouse wheel reports pixels, a legacy line-based device reports lines and a
+ * page-based one reports pages; comparing them raw would make the zoom speed
+ * depend on the hardware. An unknown mode falls back to pixels (x1), which is
+ * what every current browser sends.
+ */
+function wheelUnit(mode: number): number {
+  if (mode === 1) return WHEEL_LINE_HEIGHT;
+  if (mode === 2) return WHEEL_PAGE_HEIGHT;
+  return 1;
 }
 
 export class GestureController extends BaseController<GestureEvents> {
@@ -85,7 +151,6 @@ export class GestureController extends BaseController<GestureEvents> {
   #startTime = 0;
   #lastTap = 0;
   #longPressTimer: ReturnType<typeof setTimeout> | null = null;
-  #active = false;
   /** Every pointer currently down on the element, keyed by `pointerId`. */
   #pointers = new Map<number, { x: number; y: number }>();
   /** Pinch baseline: spread and angle of the first two pointers to go down. */
@@ -97,26 +162,47 @@ export class GestureController extends BaseController<GestureEvents> {
   #multiTouch = false;
   /** True once `pan` was recognised, so only the first move reports `"start"`. */
   #panning = false;
-  /** Set by `handleCancel`, consumed by the `release` it drives. */
-  #cancelled = false;
+  /** Kinds turned on at runtime through `enableGestures`, unioned over the options. */
+  #extraKinds = new Set<GestureKind>();
+  /**
+   * Whether the browser's own Ctrl+wheel page zoom is being cancelled.
+   *
+   * `GestureOptions.preventDefault` or the `x-gesture.*.prevent` modifier, as
+   * a property of this controller: a flag two directives on the same element
+   * share, and one a later directive can never turn back off.
+   */
+  #preventZoom: boolean;
+  /** Σ`deltaY` of the running wheel session; the scale is derived from it. */
+  #wheelAccumulator = 0;
+  #wheelTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The last recognized tick, kept for the `end` the session closes with.
+   *
+   * Only a tick assigns it and only the timer that tick arms reads it, so it is
+   * never read before it is written.
+   */
+  #lastWheel!: WheelEvent;
+  /** The absolute zoom: every session's `scale` multiplied into this. */
+  #committedScale = 1;
+  /** What `#committedScale` was when the running session began. */
+  #scaleBase = 1;
 
-  #onPointerDown: ((e: PointerEvent) => void) | null = null;
-  #onPointerMove: ((e: PointerEvent) => void) | null = null;
-  #onPointerUp: ((e: PointerEvent) => void) | null = null;
-  #onPointerCancel: ((e: PointerEvent) => void) | null = null;
+  /** The live listeners, so `detach()` removes exactly what `attach()` added. */
+  #listeners = new Map<string, EventListener>();
 
   constructor(options: GestureOptions = {}) {
     super();
     this.id = options.id ?? generateId("gesture");
     this.#options = options;
     this.#element = options.element ?? null;
+    this.#preventZoom = !!options.preventDefault;
   }
 
   get state(): GestureState {
     return this.#state;
   }
   get isTracking(): boolean {
-    return this.#active;
+    return this.#state.active;
   }
 
   private setState(patch: Partial<GestureState>): void {
@@ -131,13 +217,121 @@ export class GestureController extends BaseController<GestureEvents> {
    * guard keeps the six per-kind events free for consumers who want them
    * without paying for seven emits per gesture.
    */
-  private emitBoth(kind: GestureKind, detail: unknown): void {
-    this.emit("gesture", detail as never);
-    if (this.events.listenerCount(kind) > 0) this.emit(kind, detail as never);
+  private emitBoth(
+    kind: GestureKind,
+    e: PointerEvent | WheelEvent,
+    extra: Record<string, unknown> = {}
+  ): void {
+    const detail = { kind, ...baseFields(e, this.#state), ...extra } as GestureRecognizedDetail;
+    this.emit("gesture", detail);
+    if (this.events.listenerCount(kind) > 0) this.emit(kind, detail);
+  }
+
+  /**
+   * Fold one session's relative `scale` into the running total, in `#committedScale`.
+   *
+   * A session's scale is measured from where that session started — the pinch
+   * baseline, or the wheel accumulator — so it already contains everything the
+   * session has done so far. Multiplying each step into the total would
+   * therefore compound the session's own history: a pinch spreading in two
+   * steps to 1.25 and then 2 would commit 2.5, a zoom the fingers never
+   * described. The total is the zoom the user began the session from times how
+   * far the session has taken it, which also means a session that returns to
+   * its baseline returns the surface to the zoom it started from.
+   *
+   * `scaleRange` is read here rather than resolved into a pair of sentinel
+   * bounds in the constructor: a field pair and its infinities cost more in the
+   * bundle than the one option lookup on an object this class already reads per
+   * tick.
+   */
+  private commitScale(sessionScale: number): void {
+    const total = this.#scaleBase * sessionScale;
+    const range = this.#options.scaleRange;
+    this.#committedScale = range ? Math.min(Math.max(total, range[0]), range[1]) : total;
+  }
+
+  /**
+   * Return the committed zoom to 1 — "back to 100%" — without cancelling.
+   *
+   * The base of a session already in flight moves with it, so a pinch or a
+   * wheel session that is still running carries on from the reset rather than
+   * snapping the surface back to the zoom it started the session from.
+   */
+  resetScale(): void {
+    this.#committedScale = this.#scaleBase = 1;
+    this.setState({ committedScale: 1 });
   }
 
   private enabled(kind: GestureKind): boolean {
-    return (this.#options.gestures ?? ALL_GESTURES).includes(kind);
+    return (this.#options.gestures ?? ALL_GESTURES).includes(kind) || this.#extraKinds.has(kind);
+  }
+
+  /**
+   * Turn more gesture kinds on for an already-attached controller.
+   *
+   * The set is a union, never a replacement: the directive calls this with the
+   * modifier it was written with, and narrowing `options.gestures` for the
+   * programmatic path must keep working. Idempotent, so a second
+   * `x-gesture.*` on the same element re-attaching nothing is harmless.
+   */
+  enableGestures(kinds: Iterable<GestureKind>): void {
+    for (const kind of kinds) {
+      this.#extraKinds.add(kind);
+      if (kind === "wheel") this.attachWheel();
+    }
+  }
+
+  /**
+   * Claim the browser's own Ctrl+wheel zoom for this controller — what
+   * `x-gesture.wheel.prevent` calls.
+   *
+   * A union like `enableGestures`, not a setter: once on it stays on for this
+   * controller, so a second `x-gesture.*` on the same element that omits the
+   * modifier cannot undo what the first one asked for.
+   *
+   * The re-attach is the whole point, and is easy to mistake for waste.
+   * `passive` is read when a listener is *added*, never afterwards: a wheel
+   * listener attached as passive stays passive for the page's lifetime, and a
+   * `preventDefault()` inside it is ignored by the browser — so the browser's
+   * own Ctrl+wheel zoom would win and the page would zoom instead of the
+   * surface. Setting the flag is therefore not enough, the listener has to be
+   * added again. `attach()` is the re-attach path that already exists (it is
+   * what `mount()` uses); it re-registers the pointer listeners too, and clears
+   * a wheel session in progress. The directive is the only caller and does
+   * this while binding the element, so there is never a session to clear.
+   *
+   * Only when there is an element: a controller built without one keeps the
+   * flag and its next `attach()` reads it, so this never attaches a wheel to a
+   * consumer that never asked for one.
+   */
+  enablePreventDefault(): void {
+    if (this.#preventZoom) return;
+    this.#preventZoom = true;
+    if (this.#element) this.attach(this.#element);
+  }
+
+  private clearWheel(): void {
+    if (!this.#wheelTimer) return;
+    clearTimeout(this.#wheelTimer);
+    this.#wheelTimer = null;
+  }
+
+  /**
+   * Attach the opt-in wheel listener.
+   *
+   * Non-passive only when the browser's own zoom is being cancelled: a passive
+   * listener is required by the browser for `wheel` on the document and cannot
+   * cancel anything, so claiming Ctrl+wheel has to be declared up front.
+   *
+   * The `enabled("wheel")` test is this method's own, so every caller is a
+   * plain call and the wheel stays opt-in in exactly one place.
+   */
+  private attachWheel(): void {
+    const element = this.#element;
+    if (!element || !this.enabled("wheel") || this.#listeners.has("wheel")) return;
+    const listener = this.handleWheel.bind(this) as EventListener;
+    this.#listeners.set("wheel", listener);
+    element.addEventListener("wheel", listener, { passive: !this.#preventZoom });
   }
 
   private clearLongPress(): void {
@@ -157,35 +351,35 @@ export class GestureController extends BaseController<GestureEvents> {
    *
    * Attaching detaches from whatever was attached before, so a controller
    * follows exactly one element at a time. That is why the plugin creates one
-   * controller per element rather than sharing one across a page.
+   * controller per element rather than sharing one across a page. It is also
+   * why `attach()` is how a listener gets registered differently — see
+   * `enablePreventDefault()`.
+   *
+   * Teardown is `teardown()`'s job: it calls `detach()`, which removes every
+   * listener this method added — the wheel one included, since it shares the
+   * registry — and ends the wheel session.
    */
   attach(element: Element): void {
     this.detach();
     this.#element = element;
-    this.#onPointerDown = (e: PointerEvent) => this.handleDown(e);
-    this.#onPointerMove = (e: PointerEvent) => this.handleMove(e);
-    this.#onPointerUp = (e: PointerEvent) => this.handleUp(e);
-    this.#onPointerCancel = (e: PointerEvent) => this.handleCancel(e);
-    element.addEventListener("pointerdown", this.#onPointerDown as EventListener);
-    element.addEventListener("pointermove", this.#onPointerMove as EventListener);
-    element.addEventListener("pointerup", this.#onPointerUp as EventListener);
-    element.addEventListener("pointercancel", this.#onPointerCancel as EventListener);
-    this.onCleanup(() => this.detach());
+    for (const [type, handler] of POINTER_EVENTS) {
+      const listener = this[handler].bind(this) as EventListener;
+      this.#listeners.set(type, listener);
+      element.addEventListener(type, listener);
+    }
+    this.attachWheel();
   }
 
   detach(): void {
-    if (!this.#element) return;
     const el = this.#element;
-    if (this.#onPointerDown)
-      el.removeEventListener("pointerdown", this.#onPointerDown as EventListener);
-    if (this.#onPointerMove)
-      el.removeEventListener("pointermove", this.#onPointerMove as EventListener);
-    if (this.#onPointerUp) el.removeEventListener("pointerup", this.#onPointerUp as EventListener);
-    if (this.#onPointerCancel)
-      el.removeEventListener("pointercancel", this.#onPointerCancel as EventListener);
+    if (el) {
+      for (const [type, listener] of this.#listeners) {
+        el.removeEventListener(type, listener);
+      }
+    }
+    this.clearWheel();
     this.#element = null;
-    this.#onPointerDown = this.#onPointerMove = this.#onPointerUp = null;
-    this.#onPointerCancel = null;
+    this.#listeners.clear();
   }
 
   /**
@@ -195,15 +389,32 @@ export class GestureController extends BaseController<GestureEvents> {
    * recogniser. The long-press timer is cleared, every pointer is forgotten,
    * and the reported state is reset; `lastTap` is deliberately kept, so a
    * cancel does not break an in-flight double-tap window.
+   *
+   * The committed zoom goes with the rest: an abandoned interaction leaves no
+   * zoom behind, the same way it already drops the accumulated wheel scale.
    */
   cancel(): void {
     this.clearLongPress();
-    this.#active = false;
+    // The wheel session is a session like any other: cancelling mid-scroll
+    // drops the accumulated zoom back to 1 so the surface does not stay
+    // zoomed in from a gesture nobody finished.
+    this.clearWheel();
+    this.#wheelAccumulator = 0;
     this.#pointers.clear();
     this.#pinching = false;
     this.#multiTouch = false;
     this.#panning = false;
-    this.setState({ active: false, kind: null, pointerCount: 0, scale: 1, rotation: 0 });
+    this.#committedScale = 1;
+    this.setState({
+      active: false,
+      kind: null,
+      pointerCount: 0,
+      scale: 1,
+      committedScale: 1,
+      rotation: 0,
+      deltaX: 0,
+      deltaY: 0,
+    });
   }
 
   /**
@@ -212,22 +423,31 @@ export class GestureController extends BaseController<GestureEvents> {
    * surface would otherwise stop feeding the recognizer mid-gesture.
    */
   private capture(pointerId: number): void {
-    const el = this.#element as (Element & { setPointerCapture?: (id: number) => void }) | null;
-    if (typeof el?.setPointerCapture !== "function") return;
     try {
-      el.setPointerCapture(pointerId);
-    } catch {
-      // Capture is a nicety: a browser that refuses it still delivers events.
-    }
+      // Capture is a nicety: an environment without it, or a browser that
+      // refuses the id, still delivers the events.
+      this.#element?.setPointerCapture?.(pointerId);
+    } catch {}
+  }
+
+  /**
+   * The displacement between the two leading pointers, as `[dx, dy]`.
+   *
+   * A zero displacement when fewer than two pointers are down, so a caller
+   * never has to re-ask whether the pair it wants exists.
+   */
+  private pointerDelta(): [number, number] {
+    const [a, b] = this.#pointers.values();
+    return b ? [b.x - a.x, b.y - a.y] : [0, 0];
   }
 
   /** Current spread/angle of the two leading pointers, relative to the baseline. */
   private pinchMetrics(): { scale: number; rotation: number } {
-    const [a, b] = [...this.#pointers.values()];
-    const distance = Math.hypot(b.x - a.x, b.y - a.y);
+    const [dx, dy] = this.pointerDelta();
+    const distance = Math.hypot(dx, dy);
     return {
       scale: this.#pinchDistance < PINCH_MIN_DISTANCE ? 1 : distance / this.#pinchDistance,
-      rotation: angleFor(b.x - a.x, b.y - a.y) - this.#pinchAngle,
+      rotation: angleFor(dx, dy) - this.#pinchAngle,
     };
   }
 
@@ -235,37 +455,33 @@ export class GestureController extends BaseController<GestureEvents> {
     const mouseButtons = this.#options.mouseButtons ?? [0];
     // mouse: check button allowlist; touch/pen always 0 so allow
     if (e.pointerType === "mouse" && !mouseButtons.includes(e.button as 0 | 1 | 2 | 3 | 4)) return;
-    this.#cancelled = false;
     this.capture(e.pointerId);
 
     const first = this.#pointers.size === 0;
     this.#pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (first) {
-      this.#active = true;
       this.#multiTouch = false;
       this.#panning = false;
       this.#startX = e.clientX;
       this.#startY = e.clientY;
       this.#startTime = Date.now();
-      this.setState({
-        active: true,
-        kind: null,
-        x: e.clientX,
-        y: e.clientY,
-        distanceX: 0,
-        distanceY: 0,
-        totalDistance: 0,
-        velocityX: 0,
-        velocityY: 0,
-        pointerCount: this.#pointers.size,
-        scale: 1,
-        rotation: 0,
-        button: e.button as 0,
-        buttons: e.buttons,
-        pointerType: e.pointerType,
-        direction: "none",
-      });
+      this.setState(
+        // The idle state, with the pose of the pointer that just went down on
+        // top of it: everything the interaction is not carrying yet is reset.
+        // The committed scale is the one exception — it is the zoom from
+        // every gesture before this one, which is the whole reason it exists.
+        emptyState({
+          active: true,
+          x: e.clientX,
+          y: e.clientY,
+          pointerCount: this.#pointers.size,
+          button: e.button as 0,
+          buttons: e.buttons,
+          pointerType: e.pointerType,
+          committedScale: this.#committedScale,
+        })
+      );
     } else {
       this.setState({ pointerCount: this.#pointers.size, x: e.clientX, y: e.clientY });
     }
@@ -274,12 +490,15 @@ export class GestureController extends BaseController<GestureEvents> {
       // A second finger turns the interaction into a pinch: drop the
       // single-pointer long press and take the baseline to measure against.
       this.clearLongPress();
-      const [a, b] = [...this.#pointers.values()];
-      this.#pinchDistance = Math.hypot(b.x - a.x, b.y - a.y);
-      this.#pinchAngle = angleFor(b.x - a.x, b.y - a.y);
+      const [dx, dy] = this.pointerDelta();
+      this.#pinchDistance = Math.hypot(dx, dy);
+      this.#pinchAngle = angleFor(dx, dy);
       this.#pinching = true;
       this.#multiTouch = true;
       this.#panning = false;
+      // The baseline is taken here, so the zoom this pinch commits is measured
+      // from the zoom the user was already at when the second finger landed.
+      this.#scaleBase = this.#committedScale;
       this.emitPinch(e, "start", { scale: 1, rotation: 0 });
     } else if (first) {
       this.armLongPress(e);
@@ -294,13 +513,12 @@ export class GestureController extends BaseController<GestureEvents> {
    */
   private armLongPress(e: PointerEvent): void {
     if (!this.enabled("longpress")) return;
-    const delay = this.#options.longPressDelay ?? 500;
     this.#longPressTimer = setTimeout(() => {
       this.#longPressTimer = null;
-      if (!this.#active || this.#multiTouch || this.#state.kind === "longpress") return;
+      if (!this.#state.active || this.#multiTouch || this.#state.kind === "longpress") return;
       this.setState({ kind: "longpress" });
-      this.emitBoth("longpress", { kind: "longpress", ...baseFields(e, this.#state) } as never);
-    }, delay);
+      this.emitBoth("longpress", e);
+    }, this.#options.longPressDelay ?? 500);
   }
 
   private handleMove(e: PointerEvent): void {
@@ -323,7 +541,6 @@ export class GestureController extends BaseController<GestureEvents> {
     const dt = Math.max(1, Date.now() - this.#startTime);
     const vx = dx / dt;
     const vy = dy / dt;
-    const threshPan = this.#options.panThreshold ?? 10;
     const total = Math.hypot(dx, dy);
     // Moving past the tap threshold means this is not a press-and-hold, so the
     // pending long press is abandoned. It uses `tapThreshold`, not
@@ -344,65 +561,66 @@ export class GestureController extends BaseController<GestureEvents> {
       direction: dir,
     });
 
-    if (total > threshPan && !this.#multiTouch && this.enabled("pan")) {
+    if (total > (this.#options.panThreshold ?? 10) && !this.#multiTouch && this.enabled("pan")) {
       const phase: GesturePhase = this.#panning ? "move" : "start";
       this.#panning = true;
       this.setState({ kind: "pan" });
-      this.emitBoth("pan", {
-        kind: "pan",
-        ...baseFields(e, this.#state),
+      this.emitBoth("pan", e, {
         phase,
         distanceX: dx,
         distanceY: dy,
         velocityX: vx,
         velocityY: vy,
         direction: dir,
-      } as never);
+      });
     }
   }
 
   private handleUp(e: PointerEvent): void {
     if (!this.#pointers.has(e.pointerId)) return;
-    this.#cancelled = false;
-    this.release(e);
-    if (this.#pointers.size > 0 || this.#cancelled) return;
+    this.release(e, false);
+    // The lift itself was not a cancellation, so the only thing that can stop
+    // recognition is another pointer still being down. A cancellation arrives
+    // on `pointercancel`, which never gets this far.
+    if (this.#pointers.size > 0) return;
     this.recognize(e);
   }
 
   private handleCancel(e: PointerEvent): void {
     if (!this.#pointers.has(e.pointerId)) return;
-    this.#cancelled = true;
-    this.release(e);
-    this.#cancelled = false;
+    this.release(e, true);
   }
 
-  /** Drops one pointer, emitting the `end` of whatever it was the last part of. */
-  private release(e: PointerEvent): void {
+  /**
+   * Drops one pointer, emitting the `end` of whatever it was the last part of.
+   *
+   * `cancelled` is the caller's reason for lifting: `pointercancel` means the
+   * gesture is abandoned, so the recognized `kind` is dropped instead of kept.
+   */
+  private release(e: PointerEvent, cancelled: boolean): void {
     this.clearLongPress();
     // Read the metrics while both pointers are still on the map: the `end`
     // detail has to carry the final scale, not the reset one.
     const finalPinch = this.#pinching ? this.pinchMetrics() : null;
     this.#pointers.delete(e.pointerId);
 
-    if (this.#pinching) {
-      if (this.#pointers.size >= 2) {
-        this.setState({ pointerCount: this.#pointers.size });
-        return;
-      }
+    if (this.#pinching && this.#pointers.size < 2) {
+      // The pinch ends here: it gets its `end`, and the pose it left behind is
+      // cleared. With two pointers still down the pinch keeps running, so only
+      // the count moves.
       this.#pinching = false;
       if (this.enabled("pinch")) this.emitPinch(e, "end", finalPinch ?? { scale: 1, rotation: 0 });
       this.setState({ scale: 1, rotation: 0, pointerCount: this.#pointers.size });
-      if (this.#pointers.size > 0) return;
     } else {
       this.setState({ pointerCount: this.#pointers.size });
-      if (this.#pointers.size > 0) return;
     }
+    // A pointer still down means the interaction itself is not over.
+    if (this.#pointers.size > 0) return;
 
     // Last pointer of the interaction: the gesture itself is over.
     const wasPan = this.#panning;
     this.#panning = false;
-    this.#active = false;
-    const discardKind = this.#cancelled || this.#multiTouch;
+    const discardKind = cancelled || this.#multiTouch;
     this.setState({
       active: false,
       pointerCount: 0,
@@ -413,16 +631,14 @@ export class GestureController extends BaseController<GestureEvents> {
     if (!discardKind && wasPan) {
       const dx = e.clientX - this.#startX;
       const dy = e.clientY - this.#startY;
-      this.emitBoth("pan", {
-        kind: "pan",
-        ...baseFields(e, this.#state),
+      this.emitBoth("pan", e, {
         phase: "end",
         distanceX: dx,
         distanceY: dy,
         velocityX: 0,
         velocityY: 0,
         direction: directionFor(dx, dy),
-      } as never);
+      });
     }
     this.#multiTouch = false;
   }
@@ -433,24 +649,22 @@ export class GestureController extends BaseController<GestureEvents> {
     metrics: { scale: number; rotation: number }
   ) {
     if (!this.enabled("pinch")) return;
-    const [a, b] = [...this.#pointers.values()];
+    const [dx, dy] = this.pointerDelta();
+    // Applied to the base rather than multiplied into the total, so the `end`
+    // reports the zoom the last `move` reached instead of reaching it twice.
+    // It lands in the state, not the detail: `baseFields()` puts the whole
+    // state on every detail, so `d.state.committedScale` is already there.
+    this.commitScale(metrics.scale);
     this.setState({
       kind: "pinch",
       x: e.clientX,
       y: e.clientY,
       scale: metrics.scale,
+      committedScale: this.#committedScale,
       rotation: metrics.rotation,
       pointerCount: this.#pointers.size,
     });
-    this.emitBoth("pinch", {
-      kind: "pinch",
-      ...baseFields(e, this.#state),
-      phase,
-      scale: metrics.scale,
-      rotation: metrics.rotation,
-      distanceX: a && b ? b.x - a.x : 0,
-      distanceY: a && b ? b.y - a.y : 0,
-    } as never);
+    this.emitBoth("pinch", e, { phase, ...metrics, distanceX: dx, distanceY: dy });
   }
 
   /**
@@ -471,11 +685,8 @@ export class GestureController extends BaseController<GestureEvents> {
     const vx = dx / dt;
     const vy = dy / dt;
     const total = Math.hypot(dx, dy);
-    const tapThresh = this.#options.tapThreshold ?? 10;
-    const swipeThresh = this.#options.swipeThreshold ?? 50;
-    const swipeVel = this.#options.swipeVelocity ?? 0.3;
 
-    if (total <= tapThresh) {
+    if (total <= (this.#options.tapThreshold ?? 10)) {
       const now = Date.now();
       const interval = this.#options.doubleTapInterval ?? 300;
       const isDouble = now - this.#lastTap < interval;
@@ -483,26 +694,137 @@ export class GestureController extends BaseController<GestureEvents> {
       const kind: GestureKind = isDouble ? "doubletap" : "tap";
       if (this.enabled(kind)) {
         this.setState({ kind });
-        this.emitBoth(kind, { kind, ...baseFields(e, this.#state) } as never);
+        this.emitBoth(kind, e);
       }
       // A pan already reported the drag, so `kind` is only advanced to `swipe`
       // when a gesture travelled far enough and fast enough to qualify.
-    } else if (total >= swipeThresh && Math.hypot(vx, vy) >= swipeVel && this.enabled("swipe")) {
+    } else if (
+      total >= (this.#options.swipeThreshold ?? 50) &&
+      Math.hypot(vx, vy) >= (this.#options.swipeVelocity ?? 0.3) &&
+      this.enabled("swipe")
+    ) {
       const dir = directionFor(dx, dy);
       this.setState({ kind: "swipe", direction: dir });
-      this.emitBoth("swipe", {
-        kind: "swipe",
-        ...baseFields(e, this.#state),
-        direction: dir,
-        velocityX: vx,
-        velocityY: vy,
-      } as never);
+      this.emitBoth("swipe", e, { direction: dir, velocityX: vx, velocityY: vy });
     }
+  }
+
+  /**
+   * One wheel tick: normalize, accumulate, report, and (re)arm the idle timer.
+   */
+  private handleWheel(e: WheelEvent): void {
+    // A wheel turn while a finger or the mouse button is down belongs to the
+    // interaction already running. Feeding it in would corrupt the pinch
+    // baseline and, worse, jump the reported `scale` out from under a drag.
+    //
+    // Ctrl (or ⌘) is the gate, and the reason is what the browser does with it:
+    // Ctrl+wheel is the browser's own page zoom. That is the one wheel gesture
+    // worth claiming for a surface — and the only one worth cancelling — while
+    // a plain wheel is the user scrolling, which stays the page's. Gating here
+    // rather than in the handler is what keeps `preventDefault` honest: it can
+    // only ever cancel the gesture that was already claimed.
+    if (!this.enabled("wheel") || this.#pointers.size > 0 || !e.ctrlKey) return;
+
+    const unit = wheelUnit(e.deltaMode);
+    const deltaX = e.deltaX * unit;
+    const deltaY = e.deltaY * unit;
+    // The tilt axis rides the detail only: nothing in the recognizer computes
+    // from it, so it does not belong in the continuously-mirrored state.
+    const deltaZ = e.deltaZ * unit;
+
+    // Cancelled before the emit so a consumer that throws cannot leave the
+    // browser zooming the whole page: once the surface is going to zoom, the
+    // browser's own Ctrl+wheel zoom must not happen as well.
+    if (this.#preventZoom) e.preventDefault();
+
+    // Only Y drives the scale. Wheel down (deltaY > 0) zooms out, which is
+    // why the exponent is negated; X is a scroll, not a zoom, and Z is
+    // ignored because nothing on a trackpad reports it.
+    this.#wheelAccumulator += deltaY;
+    const scale = Math.max(
+      Math.exp(-this.#wheelAccumulator * (this.#options.wheelScaleFactor ?? 0.002)),
+      WHEEL_MIN_SCALE
+    );
+    // The base is taken once, on the tick that opens the session: the ticks
+    // after it measure from the same accumulator, so each one already carries
+    // the whole session and none of them starts a second multiply. An armed
+    // timer is what "a session is already running" means, and `cancel()`,
+    // `detach()` and `endWheelSession()` all clear it.
+    if (!this.#wheelTimer) this.#scaleBase = this.#committedScale;
+    this.#lastWheel = e;
+    this.commitScale(scale);
+
+    this.setState({
+      active: true,
+      kind: "wheel",
+      x: e.clientX,
+      y: e.clientY,
+      button: 0,
+      buttons: 0,
+      // A wheel has no pointer id and no button state; reporting the mouse
+      // keeps a consumer that switches on `pointerType` working unchanged.
+      pointerType: "mouse",
+      scale,
+      committedScale: this.#committedScale,
+      deltaX,
+      deltaY,
+    });
+    this.emitBoth("wheel", e, {
+      phase: "move",
+      deltaX,
+      deltaY,
+      deltaZ,
+      deltaMode: e.deltaMode,
+      ctrlKey: e.ctrlKey,
+      scale,
+    });
+
+    this.clearWheel();
+    // Every tick restarts the clock: a session is the burst of ticks, and
+    // idling out is what closes it.
+    this.#wheelTimer = setTimeout(
+      () => this.endWheelSession(),
+      this.#options.wheelIdleDelay ?? 160
+    );
+  }
+
+  /**
+   * Close the wheel session after `wheelIdleDelay` of silence.
+   *
+   * The end is an event, so a consumer commits its zoom when the session
+   * closes instead of polling `active` for the absence of input. The detail is
+   * at rest — `scale` back to `1`, deltas zeroed — because nothing is being
+   * reported any more; what the session contributed is in the state's
+   * `committedScale`, which is the number a consumer binds its transform to.
+   * `originalEvent` is the last tick: there is no new input to report, and
+   * `null` would give the same detail a second meaning depending on the phase.
+   *
+   * A cancelled or detached surface never gets here — both clear the timer — so
+   * an abandoned interaction is not mistaken for a completed one.
+   */
+  private endWheelSession(): void {
+    this.#wheelTimer = null;
+    this.#wheelAccumulator = 0;
+    // `active` stays true for the whole session so the store mirror keeps
+    // streaming the cursor position, which is the anchor point of the zoom.
+    // The reset lands first so the `change` event and the `end` detail below
+    // agree that the session is over.
+    this.setState({ active: false, kind: null, scale: 1, deltaX: 0, deltaY: 0 });
+    this.emitBoth("wheel", this.#lastWheel, {
+      phase: "end",
+      deltaX: 0,
+      deltaY: 0,
+      deltaZ: 0,
+      deltaMode: 0,
+      ctrlKey: this.#lastWheel.ctrlKey,
+      scale: 1,
+    });
   }
 
   protected teardown(): void {
     this.detach();
     this.clearLongPress();
+    this.clearWheel();
   }
 }
 

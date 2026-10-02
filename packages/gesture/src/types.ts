@@ -1,7 +1,7 @@
 import type { Alpine } from "alpinejs";
 
-/** Recognized gesture kind. */
-export type GestureKind = "tap" | "doubletap" | "longpress" | "swipe" | "pan" | "pinch";
+/** Recognized gesture kind. `wheel` is opt-in and Ctrl-only: see `GestureController.enableGestures`. */
+export type GestureKind = "tap" | "doubletap" | "longpress" | "swipe" | "pan" | "pinch" | "wheel";
 
 export type GestureDirection = "up" | "down" | "left" | "right" | "none";
 export type GesturePhase = "start" | "move" | "end";
@@ -21,11 +21,14 @@ export interface GestureState {
   readonly velocityY: number;
   readonly pointerCount: number;
   readonly scale: number;
+  readonly committedScale: number;
   readonly rotation: number;
   readonly direction: GestureDirection;
   readonly button: GestureMouseButton;
   readonly buttons: number;
   readonly pointerType: GesturePointerTypeName;
+  readonly deltaX: number;
+  readonly deltaY: number;
 }
 
 export interface GestureOptions {
@@ -38,8 +41,28 @@ export interface GestureOptions {
   readonly swipeThreshold?: number;
   readonly swipeVelocity?: number;
   readonly panThreshold?: number;
+  /**
+   * `wheel` only: attach the wheel listener non-passive and cancel the
+   * browser's own Ctrl+wheel page zoom on every tick, so the surface can zoom
+   * instead. Without it the browser zooms the page, because a passive listener
+   * cannot cancel anything. No pointer event is ever cancelled. The directive
+   * equivalent is the reserved `.prevent` modifier, which is per element.
+   */
   readonly preventDefault?: boolean;
   readonly mouseButtons?: readonly GestureMouseButton[];
+  /**
+   * Clamp for `committedScale`, as `[min, max]`, applied after every session
+   * multiplies into it.
+   *
+   * Bounds are a consumer policy and the package ships none: what a surface
+   * considers its minimum and maximum zoom is not something a recognizer can
+   * know, and a default would be wrong for every surface that wants a
+   * different one. The runaway floor on a wheel session's own scale is
+   * separate — it exists so the math cannot run away within one session.
+   */
+  readonly scaleRange?: readonly [number, number];
+  readonly wheelScaleFactor?: number;
+  readonly wheelIdleDelay?: number;
   readonly storeKey?: string;
   readonly directiveKey?: string;
 }
@@ -84,6 +107,31 @@ export interface GesturePinchDetail extends GestureEventBase<"pinch"> {
   readonly distanceY: number;
 }
 
+export interface GestureWheelDetail extends GestureEventBase<"wheel"> {
+  /**
+   * `"move"` for every tick, and one `"end"` when the session closes.
+   *
+   * There is no `"start"`: a wheel has no press to begin from, so a session
+   * begins with its first tick and that tick is already a `"move"`. The idle
+   * delay that closes it is an event rather than the absence of one, so a
+   * consumer commits its zoom when the session ends rather than polling for
+   * `active` to flip.
+   */
+  readonly phase: GesturePhase;
+  readonly deltaX: number;
+  readonly deltaY: number;
+  readonly deltaZ: number;
+  readonly deltaMode: number;
+  /**
+   * True on every recognized tick — the browser sets it both for an
+   * intentional Ctrl+wheel and for a trackpad pinch, which is why the
+   * recognizer gates on it. It does not tell the two apart: what separates a
+   * pinch is its shape, a burst of small deltas rather than one notch.
+   */
+  readonly ctrlKey: boolean;
+  readonly scale: number;
+}
+
 export interface GestureDetailMap {
   readonly tap: GestureTapDetail;
   readonly doubletap: GestureDoubleTapDetail;
@@ -91,6 +139,7 @@ export interface GestureDetailMap {
   readonly swipe: GestureSwipeDetail;
   readonly pan: GesturePanDetail;
   readonly pinch: GesturePinchDetail;
+  readonly wheel: GestureWheelDetail;
 }
 
 export interface GestureChangeDetail {
@@ -99,7 +148,7 @@ export interface GestureChangeDetail {
 }
 export type GestureRecognizedDetail = GestureDetailMap[GestureKind] & {
   readonly state: GestureState;
-  readonly originalEvent: PointerEvent | null;
+  readonly originalEvent: PointerEvent | WheelEvent | null;
 };
 
 export type GestureStore = {
