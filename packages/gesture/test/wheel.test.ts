@@ -7,10 +7,12 @@
  * Pointer Events, so on a PC or a laptop the wheel produced nothing at all —
  * no cursor position, no deltas, and therefore no cursor-anchored zoom, which
  * is exactly what a desktop user expects from the same surface a phone zooms
- * with two fingers on. It also pins the two decisions that are easy to undo by
+ * with two fingers on. It also pins three decisions that are easy to undo by
  * accident: the listener is opt-in (so an existing consumer pays nothing for
- * it) and it is ignored while a pointer is down (so a scroll cannot corrupt a
- * running pinch).
+ * it) it is ignored while a pointer is down (so a scroll cannot corrupt a
+ * running pinch), and only Ctrl+wheel is recognized — that is the browser's own
+ * page zoom, the one gesture worth claiming, while a plain wheel stays the
+ * user's scroll.
  */
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 
@@ -19,13 +21,18 @@ import type { GestureRecognizedDetail, GestureWheelDetail } from "../src/types";
 
 const mounted: GestureController[] = [];
 
-function setup(options = {}): { controller: GestureController; element: HTMLElement } {
-  const element = document.createElement("div");
-  document.body.appendChild(element);
+/** A controller on `element`, already mounted and tracked for teardown. */
+function attachOn(element: HTMLElement, options = {}): GestureController {
   const controller = new GestureController({ element, ...options });
   controller.mount();
   mounted.push(controller);
-  return { controller, element };
+  return controller;
+}
+
+function setup(options = {}): { controller: GestureController; element: HTMLElement } {
+  const element = document.createElement("div");
+  document.body.appendChild(element);
+  return { controller: attachOn(element, options), element };
 }
 
 /** A controller with the wheel opted in, which is never the default. */
@@ -59,6 +66,10 @@ interface WheelInit {
  * inherits from `MouseEvent` (`clientX`, `clientY`) and `KeyboardEvent`
  * (`ctrlKey`), so those are assigned explicitly — the controller reads them off
  * the event exactly as a browser would.
+ *
+ * `ctrlKey` defaults to `true` because that is the only tick the recognizer
+ * claims: Ctrl+wheel is the browser's own page zoom, and a plain wheel is left
+ * to the page. A test that means a plain wheel passes `ctrlKey: false`.
  */
 function wheel(target: Element, init: WheelInit = {}): WheelEvent {
   const event = new WheelEvent("wheel", {
@@ -72,14 +83,37 @@ function wheel(target: Element, init: WheelInit = {}): WheelEvent {
   const fields = event as unknown as Record<string, unknown>;
   fields["clientX"] = init.x ?? 0;
   fields["clientY"] = init.y ?? 0;
-  fields["ctrlKey"] = init.ctrlKey ?? false;
+  fields["ctrlKey"] = init.ctrlKey ?? true;
   target.dispatchEvent(event);
   return event;
+}
+
+/**
+ * The `passive` flag of every `wheel` listener registered on `element`, in
+ * order.
+ *
+ * happy-dom does not enforce passivity, so a dispatched event's
+ * `defaultPrevented` cannot prove the flag reached the DOM — only the
+ * registration itself can.
+ */
+function wheelFlags(element: Element): boolean[] {
+  const flags: boolean[] = [];
+  const add = element.addEventListener.bind(element);
+  vi.spyOn(element, "addEventListener").mockImplementation(((
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions
+  ) => {
+    if (type === "wheel") flags.push((options as AddEventListenerOptions)?.passive === true);
+    add(type, listener, options);
+  }) as EventTarget["addEventListener"]);
+  return flags;
 }
 
 afterEach(() => {
   while (mounted.length) mounted.pop()?.destroy();
   document.body.replaceChildren();
+  vi.restoreAllMocks();
 });
 
 describe("wheel ticks", () => {
@@ -143,10 +177,13 @@ describe("wheel ticks", () => {
     expect(controller.state.scale).toBe(1);
   });
 
-  test("a trackpad pinch is the same path, flagged with ctrlKey", () => {
+  test("a trackpad pinch arrives on the same path as Ctrl+wheel", () => {
     const { controller, element } = wheelSurface();
     const seen = wheelRecorder(controller);
 
+    // A browser reports a trackpad pinch as a wheel with `ctrlKey` set, so the
+    // gate that makes Ctrl+wheel a gesture admits a pinch with no
+    // special-casing — there is nothing left to tell apart here.
     wheel(element, { deltaY: -40, ctrlKey: true });
 
     expect(seen.at(-1)?.ctrlKey).toBe(true);
@@ -308,12 +345,138 @@ describe("opt-in", () => {
 });
 
 describe("preventDefault", () => {
-  test("the page scroll is cancelled only when the option asks for it", () => {
+  test("the browser's own zoom is cancelled only when the option asks for it", () => {
     const { element } = wheelSurface();
     expect(wheel(element, { deltaY: -100 }).defaultPrevented).toBe(false);
 
     const blocking = wheelSurface({ preventDefault: true });
     expect(wheel(blocking.element, { deltaY: -100 }).defaultPrevented).toBe(true);
+  });
+});
+
+/**
+ * Ctrl+wheel is the gesture; a plain wheel is the page's.
+ *
+ * The gate lives in the recognizer rather than in a handler, which is what
+ * makes the cancel safe: with the option set, a plain wheel is still not
+ * cancelled, so turning the wheel over the surface scrolls the page exactly as
+ * it does everywhere else.
+ */
+describe("a plain wheel is not a gesture", () => {
+  test("no event, no state, and not even a cancel", () => {
+    const { controller, element } = wheelSurface({ preventDefault: true });
+    const seen = wheelRecorder(controller);
+
+    const event = wheel(element, { deltaY: -100, ctrlKey: false });
+
+    expect(seen).toEqual([]);
+    expect(controller.state.active).toBe(false);
+    expect(controller.state.kind).toBeNull();
+    expect(controller.state.scale).toBe(1);
+    expect(controller.state.deltaY).toBe(0);
+    // The point of gating in the recognizer: nothing here can hijack the
+    // scroll, even with the option set to cancel the browser's zoom.
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  test("a Ctrl+wheel on the same surface is the gesture the option is for", () => {
+    const { controller, element } = wheelSurface({ preventDefault: true });
+    const seen = wheelRecorder(controller);
+
+    const event = wheel(element, { deltaY: -100, ctrlKey: true });
+
+    expect(seen).toHaveLength(1);
+    expect(controller.state.scale).toBeGreaterThan(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
+});
+
+/**
+ * The per-element opt-in behind `x-gesture.wheel.prevent`.
+ *
+ * The non-obvious half is the listener: `passive` is read when a listener is
+ * added, so a controller whose wheel listener is already attached cannot be
+ * switched to a cancellable one by flipping a field — the listener has to be
+ * added again. These tests pin the registration, not the field: happy-dom does
+ * not enforce passivity, so `defaultPrevented` alone proves nothing about what
+ * the DOM was told.
+ */
+describe("enablePreventDefault", () => {
+  test("an already-attached listener is added again, non-passive", () => {
+    const element = document.createElement("div");
+    document.body.appendChild(element);
+    const flags = wheelFlags(element);
+    const controller = attachOn(element, { gestures: ["wheel"] });
+
+    // Passive to begin with: an existing consumer keeps the browser's scroll.
+    expect(flags).toEqual([true]);
+
+    controller.enablePreventDefault();
+
+    // Two registrations, not one mutated field: the DOM only ever learns the
+    // flag from a second `addEventListener` call.
+    expect(flags).toEqual([true, false]);
+    expect(wheel(element, { deltaY: -100 }).defaultPrevented).toBe(true);
+    // One tick, one accumulation: exp(-100 × 0.002). A left-behind passive
+    // listener would still be receiving ticks, and the scale would be the one
+    // for two of them (exp(-200 × 0.002)) instead.
+    expect(controller.state.scale).toBeCloseTo(1.22, 2);
+  });
+
+  test("the flag re-attaches exactly once, however often it is set", () => {
+    const { controller, element } = wheelSurface();
+    const flags = wheelFlags(element);
+
+    controller.enablePreventDefault();
+    controller.enablePreventDefault();
+
+    // The listener was already attached when the flag came on, so exactly one
+    // re-registration: the second call has nothing left to flip, which is what
+    // keeps a second `x-gesture.*` on the element from re-touching it.
+    expect(flags).toEqual([false]);
+    expect(wheel(element, { deltaY: -100 }).defaultPrevented).toBe(true);
+  });
+
+  test("a controller configured with the option needs no re-attach", () => {
+    const { controller, element } = wheelSurface({ preventDefault: true });
+    const flags = wheelFlags(element);
+
+    // The two paths agree: there is nothing left to flip, so nothing is
+    // re-registered and the listener stays exactly the one the option built.
+    controller.enablePreventDefault();
+    expect(flags).toEqual([]);
+    expect(wheel(element, { deltaY: -100 }).defaultPrevented).toBe(true);
+  });
+
+  test("a flag set before attach is honoured by the attach itself", () => {
+    const element = document.createElement("div");
+    document.body.appendChild(element);
+    const controller = new GestureController({ element, gestures: ["wheel"] });
+    mounted.push(controller);
+
+    controller.enablePreventDefault();
+    const flags = wheelFlags(element);
+    controller.mount();
+
+    // The listener `mount()` builds is cancellable, whether or not the flag
+    // came with an attach of its own.
+    expect(flags.at(-1)).toBe(false);
+    expect(flags.some(Boolean)).toBe(false);
+    expect(wheel(element, { deltaY: -100 }).defaultPrevented).toBe(true);
+  });
+
+  test("the flag does not resurrect a wheel listener on a controller without one", () => {
+    const element = document.createElement("div");
+    document.body.appendChild(element);
+    const flags = wheelFlags(element);
+    const controller = attachOn(element);
+
+    controller.enablePreventDefault();
+
+    // Wheel is opt-in: opting into the scroll suppression is not opting into
+    // the listener, so an existing consumer still pays for no wheel at all.
+    expect(flags).toEqual([]);
+    expect(wheel(element, { deltaY: -100 }).defaultPrevented).toBe(false);
   });
 });
 

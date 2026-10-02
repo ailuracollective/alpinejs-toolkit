@@ -1,6 +1,6 @@
 import type { Alpine } from "alpinejs";
 
-/** Recognized gesture kind. `wheel` is opt-in: see `GestureController.enableGestures`. */
+/** Recognized gesture kind. `wheel` is opt-in and Ctrl-only: see `GestureController.enableGestures`. */
 export type GestureKind = "tap" | "doubletap" | "longpress" | "swipe" | "pan" | "pinch" | "wheel";
 
 export type GestureDirection = "up" | "down" | "left" | "right" | "none";
@@ -40,6 +40,13 @@ export interface GestureOptions {
   readonly swipeThreshold?: number;
   readonly swipeVelocity?: number;
   readonly panThreshold?: number;
+  /**
+   * `wheel` only: attach the wheel listener non-passive and cancel the
+   * browser's own Ctrl+wheel page zoom on every tick, so the surface can zoom
+   * instead. Without it the browser zooms the page, because a passive listener
+   * cannot cancel anything. No pointer event is ever cancelled. The directive
+   * equivalent is the reserved `.prevent` modifier, which is per element.
+   */
   readonly preventDefault?: boolean;
   readonly mouseButtons?: readonly GestureMouseButton[];
   readonly wheelScaleFactor?: number;
@@ -94,6 +101,12 @@ export interface GestureWheelDetail extends GestureEventBase<"wheel"> {
   readonly deltaY: number;
   readonly deltaZ: number;
   readonly deltaMode: number;
+  /**
+   * True on every recognized tick — the browser sets it both for an
+   * intentional Ctrl+wheel and for a trackpad pinch, which is why the
+   * recognizer gates on it. It does not tell the two apart: what separates a
+   * pinch is its shape, a burst of small deltas rather than one notch.
+   */
   readonly ctrlKey: boolean;
   readonly scale: number;
 }

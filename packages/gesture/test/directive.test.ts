@@ -15,7 +15,7 @@
  */
 import { html, mount, reset, resume, settled, start } from "@ailura/alpinejs-testing";
 import Alpine from "alpinejs";
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vite-plus/test";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vite-plus/test";
 
 import { gesturePlugin } from "../src/plugin";
 import type { GestureStore } from "../src/types";
@@ -70,15 +70,20 @@ function tap(target: Element, [x, y] = [10, 10] as [number, number], pointerId =
  * One wheel tick. happy-dom's `WheelEvent` drops the inherited `clientX` /
  * `clientY` / `ctrlKey` fields, so they are assigned the way a browser sets
  * them before dispatch.
+ *
+ * `ctrlKey` defaults to `true`: the recognizer claims Ctrl+wheel only (it is
+ * the browser's own page zoom), and a plain wheel belongs to the page. A test
+ * that means a plain wheel passes `ctrlKey: false`.
  */
 function wheel(
   target: Element,
-  init: WheelEventInit & { x?: number; y?: number } = {}
+  init: WheelEventInit & { x?: number; y?: number; ctrlKey?: boolean } = {}
 ): WheelEvent {
   const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init });
   const fields = event as unknown as Record<string, unknown>;
   fields["clientX"] = init.x ?? 0;
   fields["clientY"] = init.y ?? 0;
+  fields["ctrlKey"] = init.ctrlKey ?? true;
   target.dispatchEvent(event);
   return event;
 }
@@ -93,7 +98,30 @@ beforeEach(() => {
 
 afterEach(() => {
   reset();
+  vi.restoreAllMocks();
 });
+
+/**
+ * The `passive` flag of every `wheel` listener registered on `element`, in
+ * order.
+ *
+ * Installed before `mount()`, because the directive attaches its listeners
+ * while Alpine initializes the tree. happy-dom does not enforce passivity, so
+ * the registration is the only place the flag can be observed from.
+ */
+function wheelFlags(element: Element): boolean[] {
+  const flags: boolean[] = [];
+  const add = element.addEventListener.bind(element);
+  vi.spyOn(element, "addEventListener").mockImplementation(((
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions
+  ) => {
+    if (type === "wheel") flags.push((options as AddEventListenerOptions)?.passive === true);
+    add(type, listener, options);
+  }) as EventTarget["addEventListener"]);
+  return flags;
+}
 
 const store = () => Alpine.store("gesture") as GestureStore;
 
@@ -352,6 +380,172 @@ describe("x-gesture.wheel", () => {
     await settled();
 
     expect([...scope<{ log: string[] }>(el).log]).toEqual(["tap", "wheel", "wheel"]);
+  });
+});
+
+describe("x-gesture .prevent", () => {
+  /**
+   * The reserved modifier, not a gesture kind.
+   *
+   * `x-gesture.prevent="fn"` on its own filters down to nothing, and a
+   * directive with no gesture left is the bare directive: a `.tap`. Were
+   * `prevent` treated as a kind instead, that binding would build a recognizer
+   * whose kind filter never matches — the same dead binding as a misspelled
+   * modifier, which is exactly what the modifier must not be.
+   */
+  test("a directive whose only modifier is the flag is still a tap", async () => {
+    const el = html(`
+      <div x-data="{ log: [] }">
+        <div id="surface" x-gesture.prevent="log.push('tap')"></div>
+      </div>
+    `);
+    mount(el as HTMLElement);
+    await settled();
+    const surface = find(el, "#surface");
+
+    tap(surface);
+    await settled();
+
+    expect([...scope<{ log: string[] }>(el).log]).toEqual(["tap"]);
+  });
+
+  test("the flag does not widen the kinds a handler is filtered by", async () => {
+    const el = html(`
+      <div x-data="{ log: [] }">
+        <div id="surface" x-gesture.wheel.prevent="log.push('wheel')"></div>
+      </div>
+    `);
+    mount(el as HTMLElement);
+    await settled();
+    const surface = find(el, "#surface");
+
+    tap(surface);
+    wheel(surface, { deltaY: -100 });
+    await settled();
+
+    // `wheel` and nothing else: the handler filter is `wheel`, so `prevent`
+    // cannot have survived into the kinds as a gesture of its own.
+    expect([...scope<{ log: string[] }>(el).log]).toEqual(["wheel"]);
+  });
+
+  test("the modifier attaches the wheel listener non-passive and cancels the tick", async () => {
+    const el = html(`
+      <div x-data>
+        <div id="surface" x-gesture.wheel.prevent="() => {}"></div>
+      </div>
+    `);
+    // Installed before `mount()`, so the registration the directive performs
+    // is the one under observation.
+    const surface = find(el, "#surface");
+    const flags = wheelFlags(surface);
+    mount(el as HTMLElement);
+    await settled();
+
+    // One registration, and it is non-passive — a passive wheel listener
+    // ignores `preventDefault()`, so this is what stops the page scrolling.
+    expect(flags).toEqual([false]);
+    expect(wheel(surface, { deltaY: -100 }).defaultPrevented).toBe(true);
+  });
+
+  test("the flag is per element: one surface opts in, its neighbour does not", async () => {
+    const el = html(`
+      <div x-data>
+        <div id="blocking" x-gesture.wheel.prevent="() => {}"></div>
+        <div id="plain" x-gesture.wheel="() => {}"></div>
+      </div>
+    `);
+    const blocking = find(el, "#blocking");
+    const plain = find(el, "#plain");
+    const blockingFlags = wheelFlags(blocking);
+    const plainFlags = wheelFlags(plain);
+    mount(el as HTMLElement);
+    await settled();
+
+    // One plugin registration, two controllers, two answers: the modifier is
+    // not global, and a surface that does not ask for it keeps the browser's
+    // own Ctrl+wheel zoom.
+    expect(blockingFlags).toEqual([false]);
+    expect(plainFlags).toEqual([true]);
+    expect(wheel(blocking, { deltaY: -100 }).defaultPrevented).toBe(true);
+    expect(wheel(plain, { deltaY: -100 }).defaultPrevented).toBe(false);
+  });
+
+  test("a plain wheel is the page's, even on a surface that claimed Ctrl+wheel", async () => {
+    const el = html(`
+      <div x-data="{ zoomed: 0 }">
+        <div
+          id="surface"
+          x-gesture.wheel.prevent="zoomed++"
+          class="touch-none"
+        ></div>
+      </div>
+    `);
+    const surface = find(el, "#surface");
+    mount(el as HTMLElement);
+    await settled();
+
+    // Scrolling the page over the surface is not hijacked: the modifier claims
+    // the browser's own zoom gesture, not the wheel.
+    const plain = wheel(surface, { deltaY: 120, ctrlKey: false });
+    await settled();
+
+    expect(scope<{ zoomed: number }>(el).zoomed).toBe(0);
+    expect(plain.defaultPrevented).toBe(false);
+
+    // The gesture it did claim still works, on the same surface.
+    wheel(surface, { deltaY: -100 });
+    await settled();
+
+    expect(scope<{ zoomed: number }>(el).zoomed).toBe(1);
+  });
+
+  test("a later directive on the same element without the flag does not undo it", async () => {
+    const el = html(`
+      <div x-data="{ log: [] }">
+        <div
+          id="surface"
+          x-gesture.wheel.prevent="log.push('wheel')"
+          x-gesture.tap="log.push('tap')"
+        ></div>
+      </div>
+    `);
+    const surface = find(el, "#surface");
+    const flags = wheelFlags(surface);
+    mount(el as HTMLElement);
+    await settled();
+
+    // Both directives share one controller. The flag belongs to that
+    // controller, so the second one — which omits it — must not re-attach the
+    // wheel listener as passive.
+    expect(flags).toEqual([false]);
+
+    tap(surface);
+    wheel(surface, { deltaY: -100 });
+    await settled();
+
+    expect([...scope<{ log: string[] }>(el).log]).toEqual(["tap", "wheel"]);
+  });
+
+  test("the plugin-level option still cancels, and the two paths agree", async () => {
+    // A second registration under its own names: `start()` already claimed the
+    // default `gesture` store and directive for this process.
+    Alpine.plugin(
+      gesturePlugin({ preventDefault: true, storeKey: "gesture-pd", directiveKey: "gesture-pd" })
+    );
+    const el = html(`
+      <div x-data>
+        <div id="surface" x-gesture-pd.wheel="() => {}"></div>
+      </div>
+    `);
+    const surface = find(el, "#surface");
+    const flags = wheelFlags(surface);
+    mount(el as HTMLElement);
+    await settled();
+
+    // Same listener the modifier produces, so an existing consumer that set the
+    // option globally sees no change at all.
+    expect(flags).toEqual([false]);
+    expect(wheel(surface, { deltaY: -100 }).defaultPrevented).toBe(true);
   });
 });
 

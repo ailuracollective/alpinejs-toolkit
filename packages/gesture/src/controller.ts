@@ -154,6 +154,14 @@ export class GestureController extends BaseController<GestureEvents> {
   #panning = false;
   /** Kinds turned on at runtime through `enableGestures`, unioned over the options. */
   #extraKinds = new Set<GestureKind>();
+  /**
+   * Whether the browser's own Ctrl+wheel page zoom is being cancelled.
+   *
+   * `GestureOptions.preventDefault` or the `x-gesture.*.prevent` modifier, as
+   * a property of this controller: a flag two directives on the same element
+   * share, and one a later directive can never turn back off.
+   */
+  #preventZoom: boolean;
   /** Σ`deltaY` of the running wheel session; the scale is derived from it. */
   #wheelAccumulator = 0;
   #wheelTimer: ReturnType<typeof setTimeout> | null = null;
@@ -166,6 +174,7 @@ export class GestureController extends BaseController<GestureEvents> {
     this.id = options.id ?? generateId("gesture");
     this.#options = options;
     this.#element = options.element ?? null;
+    this.#preventZoom = !!options.preventDefault;
   }
 
   get state(): GestureState {
@@ -216,6 +225,35 @@ export class GestureController extends BaseController<GestureEvents> {
     }
   }
 
+  /**
+   * Claim the browser's own Ctrl+wheel zoom for this controller — what
+   * `x-gesture.wheel.prevent` calls.
+   *
+   * A union like `enableGestures`, not a setter: once on it stays on for this
+   * controller, so a second `x-gesture.*` on the same element that omits the
+   * modifier cannot undo what the first one asked for.
+   *
+   * The re-attach is the whole point, and is easy to mistake for waste.
+   * `passive` is read when a listener is *added*, never afterwards: a wheel
+   * listener attached as passive stays passive for the page's lifetime, and a
+   * `preventDefault()` inside it is ignored by the browser — so the browser's
+   * own Ctrl+wheel zoom would win and the page would zoom instead of the
+   * surface. Setting the flag is therefore not enough, the listener has to be
+   * added again. `attach()` is the re-attach path that already exists (it is
+   * what `mount()` uses); it re-registers the pointer listeners too, and clears
+   * a wheel session in progress. The directive is the only caller and does
+   * this while binding the element, so there is never a session to clear.
+   *
+   * Only when there is an element: a controller built without one keeps the
+   * flag and its next `attach()` reads it, so this never attaches a wheel to a
+   * consumer that never asked for one.
+   */
+  enablePreventDefault(): void {
+    if (this.#preventZoom) return;
+    this.#preventZoom = true;
+    if (this.#element) this.attach(this.#element);
+  }
+
   private clearWheel(): void {
     if (!this.#wheelTimer) return;
     clearTimeout(this.#wheelTimer);
@@ -225,17 +263,19 @@ export class GestureController extends BaseController<GestureEvents> {
   /**
    * Attach the opt-in wheel listener.
    *
-   * Non-passive only when `options.preventDefault` is set: a passive listener
-   * is required by the browser for `wheel` on the document and cannot cancel
-   * the scroll, so making it cancellable has to be declared up front.
+   * Non-passive only when the browser's own zoom is being cancelled: a passive
+   * listener is required by the browser for `wheel` on the document and cannot
+   * cancel anything, so claiming Ctrl+wheel has to be declared up front.
+   *
+   * The `enabled("wheel")` test is this method's own, so every caller is a
+   * plain call and the wheel stays opt-in in exactly one place.
    */
   private attachWheel(): void {
-    if (!this.#element || this.#listeners.has("wheel")) return;
+    const element = this.#element;
+    if (!element || !this.enabled("wheel") || this.#listeners.has("wheel")) return;
     const listener = ((e: WheelEvent) => this.handleWheel(e)) as EventListener;
     this.#listeners.set("wheel", listener);
-    this.#element.addEventListener("wheel", listener, {
-      passive: !this.#options.preventDefault,
-    });
+    element.addEventListener("wheel", listener, { passive: !this.#preventZoom });
   }
 
   private clearLongPress(): void {
@@ -255,7 +295,9 @@ export class GestureController extends BaseController<GestureEvents> {
    *
    * Attaching detaches from whatever was attached before, so a controller
    * follows exactly one element at a time. That is why the plugin creates one
-   * controller per element rather than sharing one across a page.
+   * controller per element rather than sharing one across a page. It is also
+   * why `attach()` is how a listener gets registered differently — see
+   * `enablePreventDefault()`.
    *
    * Teardown is `teardown()`'s job: it calls `detach()`, which removes every
    * listener this method added — the wheel one included, since it shares the
@@ -269,7 +311,7 @@ export class GestureController extends BaseController<GestureEvents> {
       this.#listeners.set(type, listener);
       element.addEventListener(type, listener);
     }
-    if (this.enabled("wheel")) this.attachWheel();
+    this.attachWheel();
   }
 
   detach(): void {
@@ -601,7 +643,14 @@ export class GestureController extends BaseController<GestureEvents> {
     // A wheel turn while a finger or the mouse button is down belongs to the
     // interaction already running. Feeding it in would corrupt the pinch
     // baseline and, worse, jump the reported `scale` out from under a drag.
-    if (!this.enabled("wheel") || this.#pointers.size > 0) return;
+    //
+    // Ctrl (or ⌘) is the gate, and the reason is what the browser does with it:
+    // Ctrl+wheel is the browser's own page zoom. That is the one wheel gesture
+    // worth claiming for a surface — and the only one worth cancelling — while
+    // a plain wheel is the user scrolling, which stays the page's. Gating here
+    // rather than in the handler is what keeps `preventDefault` honest: it can
+    // only ever cancel the gesture that was already claimed.
+    if (!this.enabled("wheel") || this.#pointers.size > 0 || !e.ctrlKey) return;
 
     const unit = wheelUnit(e.deltaMode);
     const deltaX = e.deltaX * unit;
@@ -611,8 +660,9 @@ export class GestureController extends BaseController<GestureEvents> {
     const deltaZ = e.deltaZ * unit;
 
     // Cancelled before the emit so a consumer that throws cannot leave the
-    // page scrolling: once we are going to zoom, the scroll must not happen.
-    if (this.#options.preventDefault) e.preventDefault();
+    // browser zooming the whole page: once the surface is going to zoom, the
+    // browser's own Ctrl+wheel zoom must not happen as well.
+    if (this.#preventZoom) e.preventDefault();
 
     // Only Y drives the scale. Wheel down (deltaY > 0) zooms out, which is
     // why the exponent is negated; X is a scroll, not a zoom, and Z is

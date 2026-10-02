@@ -84,16 +84,28 @@ export function gesturePlugin(options: GestureOptions = {}): (alpine: Alpine) =>
       directiveKey,
       (el, { expression, modifiers }, { evaluateLater, cleanup }) => {
         const getHandler = evaluateLater(expression);
-        const kinds = (modifiers.length ? modifiers : ["tap"]) as GestureKind[];
+        // `.prevent` is the reserved modifier: it claims the browser's own Ctrl+wheel
+        // zoom for this element's surface, so the wheel listener has to be
+        // registered non-passive. It is a flag on the controller, not a gesture
+        // kind, so it is taken out before the rest of the list becomes the
+        // kinds this binding recognizes — a list left empty is the bare
+        // directive, a `.tap`.
+        const kinds = modifiers.filter((modifier) => modifier !== "prevent");
+        const recognized = (kinds.length ? kinds : ["tap"]) as GestureKind[];
 
         const binding = bind(el);
         const { controller } = binding;
+        // Per element, not global: the flag belongs to the controller this
+        // element's directives share, and setting it before the kinds means the
+        // wheel listener is registered non-passive the first time — which is
+        // the only time `passive` is read.
+        if (kinds.length !== modifiers.length) controller.enablePreventDefault();
         // The modifier is the opt-in: `x-gesture.wheel="..."` on its own must
         // turn the wheel on for this element. It is a union over whatever the
         // plugin was configured with, so it can only add, never narrow — and
         // `wheel` is deliberately absent from the controller's default set, so
         // this call is the only thing that attaches that listener.
-        controller.enableGestures(kinds);
+        controller.enableGestures(recognized);
         binding.refs += 1;
 
         // `evaluateLater` auto-evaluates a function result: the handler is
@@ -104,7 +116,7 @@ export function gesturePlugin(options: GestureOptions = {}): (alpine: Alpine) =>
         // naive `evaluateLater(expr)((fn) => fn(detail))` does, calls the
         // handler with no `this` and no arguments.)
         const onGesture = (detail: GestureRecognizedDetail): void => {
-          if (!kinds.includes(detail.kind)) return;
+          if (!recognized.includes(detail.kind)) return;
           getHandler(() => {}, { scope: {} as never, params: [detail] as never });
         };
         const off = controller.on("gesture", onGesture as never);
