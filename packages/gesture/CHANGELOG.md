@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/ailuracollective/alpinejs-toolkit/compare/alpinejs-gesture@v0.1.0...alpinejs-gesture@v0.2.0) (2026-10-02)
+
+
+### Features
+
+* **gesture:** add opt-in wheel gesture for desktop zoom ([#11](https://github.com/ailuracollective/alpinejs-toolkit/issues/11)) ([deaa358](https://github.com/ailuracollective/alpinejs-toolkit/commit/deaa358be5e375fc3671a87de286d80738bb8f9f))
+
 ## 0.1.0 (2026-10-02)
 
 

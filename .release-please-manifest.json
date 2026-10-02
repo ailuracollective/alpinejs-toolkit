@@ -11,7 +11,7 @@
   "packages/scroll": "0.1.0",
   "packages/calendar": "0.1.0",
   "packages/form": "0.1.0",
-  "packages/gesture": "0.1.0",
+  "packages/gesture": "0.2.0",
   "packages/keyboard": "0.1.0",
   "packages/history": "0.1.0",
   "packages/timer": "0.1.0",
