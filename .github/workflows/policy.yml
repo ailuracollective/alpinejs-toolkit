@@ -16,6 +16,17 @@ on:
   issues:
     types: [opened]
 
+# `labeled` and `unlabeled` stay in the trigger, and they are load-bearing: the type-label gate and
+# the `status:approved` gate are both label-driven, so a pull request that gains or loses its type
+# label has to be re-checked, and no later event would notice it had changed.
+#
+# GitHub sends `pull_request` label events for CLOSED pull requests too, and release-please
+# rewrites its own labels after the merge. Pull request #12 was merged at 05:46:40, `autorelease:
+# pending` was removed at 05:46:54 and `autorelease: tagged` was applied at 05:46:55, which fired
+# two more runs of both jobs below against a pull request that could no longer be gated: its head
+# ref is gone, its checks are final, and a red result on it would mean nothing. Nothing about a
+# closed pull request is still true, so both jobs are guarded on `state` below rather than the
+# trigger dropping the label events.
 permissions: {}
 
 concurrency:
@@ -25,7 +36,9 @@ concurrency:
 jobs:
   branch-validation:
     name: Branch name
-    if: github.event_name == 'pull_request'
+    # `state == 'open'`, because `labeled` on a merged pull request is still an event and the head
+    # ref it names no longer exists.
+    if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
     permissions: {}
     steps:
@@ -56,7 +69,8 @@ jobs:
 
   pull-request-policy:
     name: Pull request policy
-    if: github.event_name == 'pull_request'
+    # Same guard as the branch-name job above, for the same reason.
+    if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
