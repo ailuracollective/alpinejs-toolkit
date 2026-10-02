@@ -31,7 +31,7 @@ on:
     # same result.
     branches: [master]
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
 
 # One run per ref. A second push to an open pull request supersedes the first, and the superseded
 # run is cancelled instead of being left to finish and report on a commit nobody is shipping.
@@ -49,6 +49,29 @@ jobs:
   ci:
     name: Verify
     runs-on: ubuntu-latest
+    # The `push` leg skips a release-please release merge, because such a commit changes no code.
+    # Both release merges in this repository's history touched 3 and 77 files and contained zero
+    # TypeScript between them: only `package.json` version strings and `CHANGELOG.md`. Every gate
+    # below compiles and tests source, so the bytes they read are byte-for-byte the ones the
+    # `pull_request` leg already gated on that same content one merge earlier. Re-running them
+    # proves nothing and costs a full runner.
+    #
+    # Matched on the shape rather than on one literal string, on purpose. The subject of a release
+    # merge is whatever `pull-request-title-pattern` says, and that pattern is configuration:
+    # pinning the full literal meant that changing it would silently stop this skip from matching,
+    # and a skip that quietly stops skipping is indistinguishable from a healthy workflow.
+    # `chore` plus `: release` survives any title pattern that is still a release commit, which is
+    # the question this predicate is actually asking.
+    #
+    # It also covers a release merge cut by hand, which is the case where skipping is most worth
+    # having: that commit is a manifest bump and a changelog either way.
+    #
+    # The release-please run on that same push is NOT skipped. It is a different workflow, and it is
+    # the one that writes the tags and the GitHub releases `publish.yml` triggers on.
+    #
+    # If `head_commit` is absent the comparisons are false, the negation is true, and the job runs:
+    # not knowing is not a reason to skip a gate.
+    if: "github.event_name != 'push' || !(startsWith(github.event.head_commit.message, 'chore') && contains(github.event.head_commit.message, ': release'))"
 
     steps:
       # Checkout first, and it has to be first. GitHub resolves a local `uses: ./path` against the
