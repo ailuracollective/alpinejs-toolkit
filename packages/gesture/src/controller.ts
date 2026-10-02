@@ -2,6 +2,7 @@ import { BaseController } from "@ailura/alpinejs-core/controller";
 import { generateId } from "@ailura/alpinejs-core/ids";
 
 import type { GestureEvents } from "./events";
+import type { GestureRecognizedDetail } from "./types";
 import type {
   GestureKind,
   GestureOptions,
@@ -151,16 +152,13 @@ export class GestureController extends BaseController<GestureEvents> {
   #multiTouch = false;
   /** True once `pan` was recognised, so only the first move reports `"start"`. */
   #panning = false;
-  /** Set by `handleCancel`, consumed by the `release` it drives. */
-  #cancelled = false;
   /** Kinds turned on at runtime through `enableGestures`, unioned over the options. */
   #extraKinds = new Set<GestureKind>();
   /** Σ`deltaY` of the running wheel session; the scale is derived from it. */
   #wheelAccumulator = 0;
   #wheelTimer: ReturnType<typeof setTimeout> | null = null;
-  #onWheel: ((e: WheelEvent) => void) | null = null;
 
-  /** The live `pointer*` listeners, so `detach()` removes exactly what `attach()` added. */
+  /** The live listeners, so `detach()` removes exactly what `attach()` added. */
   #listeners = new Map<string, EventListener>();
 
   constructor(options: GestureOptions = {}) {
@@ -189,9 +187,14 @@ export class GestureController extends BaseController<GestureEvents> {
    * guard keeps the six per-kind events free for consumers who want them
    * without paying for seven emits per gesture.
    */
-  private emitBoth(kind: GestureKind, detail: unknown): void {
-    this.emit("gesture", detail as never);
-    if (this.events.listenerCount(kind) > 0) this.emit(kind, detail as never);
+  private emitBoth(
+    kind: GestureKind,
+    e: PointerEvent | WheelEvent,
+    extra: Record<string, unknown> = {}
+  ): void {
+    const detail = { kind, ...baseFields(e, this.#state), ...extra } as GestureRecognizedDetail;
+    this.emit("gesture", detail);
+    if (this.events.listenerCount(kind) > 0) this.emit(kind, detail);
   }
 
   private enabled(kind: GestureKind): boolean {
@@ -208,12 +211,8 @@ export class GestureController extends BaseController<GestureEvents> {
    */
   enableGestures(kinds: Iterable<GestureKind>): void {
     for (const kind of kinds) {
-      if (this.enabled(kind)) continue;
       this.#extraKinds.add(kind);
-      // Only the wheel listener is per-kind, so only it needs the late attach;
-      // every other kind was already listening from `attach()`. `attachWheel()`
-      // is idempotent, so it does not need deferring to the end of the loop.
-      if (kind === "wheel" && this.#element) this.attachWheel();
+      if (kind === "wheel") this.attachWheel();
     }
   }
 
@@ -231,21 +230,12 @@ export class GestureController extends BaseController<GestureEvents> {
    * the scroll, so making it cancellable has to be declared up front.
    */
   private attachWheel(): void {
-    if (!this.#element || this.#onWheel) return;
-    this.#onWheel = (e: WheelEvent) => this.handleWheel(e);
-    // Only `capture` is passed on removal: the spec matches a listener by type,
-    // callback and capture alone, and the options object is a different
-    // identity every call.
-    this.#element.addEventListener("wheel", this.#onWheel as EventListener, {
+    if (!this.#element || this.#listeners.has("wheel")) return;
+    const listener = ((e: WheelEvent) => this.handleWheel(e)) as EventListener;
+    this.#listeners.set("wheel", listener);
+    this.#element.addEventListener("wheel", listener, {
       passive: !this.#options.preventDefault,
     });
-  }
-
-  private detachWheel(): void {
-    if (!this.#element || !this.#onWheel) return;
-    this.#element.removeEventListener("wheel", this.#onWheel as EventListener);
-    this.#onWheel = null;
-    this.clearWheel();
   }
 
   private clearLongPress(): void {
@@ -266,6 +256,10 @@ export class GestureController extends BaseController<GestureEvents> {
    * Attaching detaches from whatever was attached before, so a controller
    * follows exactly one element at a time. That is why the plugin creates one
    * controller per element rather than sharing one across a page.
+   *
+   * Teardown is `teardown()`'s job: it calls `detach()`, which removes every
+   * listener this method added — the wheel one included, since it shares the
+   * registry — and ends the wheel session.
    */
   attach(element: Element): void {
     this.detach();
@@ -276,7 +270,6 @@ export class GestureController extends BaseController<GestureEvents> {
       element.addEventListener(type, listener);
     }
     if (this.enabled("wheel")) this.attachWheel();
-    this.onCleanup(() => this.detach());
   }
 
   detach(): void {
@@ -286,7 +279,7 @@ export class GestureController extends BaseController<GestureEvents> {
         el.removeEventListener(type, listener);
       }
     }
-    this.detachWheel();
+    this.clearWheel();
     this.#element = null;
     this.#listeners.clear();
   }
@@ -359,7 +352,6 @@ export class GestureController extends BaseController<GestureEvents> {
     const mouseButtons = this.#options.mouseButtons ?? [0];
     // mouse: check button allowlist; touch/pen always 0 so allow
     if (e.pointerType === "mouse" && !mouseButtons.includes(e.button as 0 | 1 | 2 | 3 | 4)) return;
-    this.#cancelled = false;
     this.capture(e.pointerId);
 
     const first = this.#pointers.size === 0;
@@ -416,7 +408,7 @@ export class GestureController extends BaseController<GestureEvents> {
       this.#longPressTimer = null;
       if (!this.#state.active || this.#multiTouch || this.#state.kind === "longpress") return;
       this.setState({ kind: "longpress" });
-      this.emitBoth("longpress", { kind: "longpress", ...baseFields(e, this.#state) } as never);
+      this.emitBoth("longpress", e);
     }, this.#options.longPressDelay ?? 500);
   }
 
@@ -464,63 +456,62 @@ export class GestureController extends BaseController<GestureEvents> {
       const phase: GesturePhase = this.#panning ? "move" : "start";
       this.#panning = true;
       this.setState({ kind: "pan" });
-      this.emitBoth("pan", {
-        kind: "pan",
-        ...baseFields(e, this.#state),
+      this.emitBoth("pan", e, {
         phase,
         distanceX: dx,
         distanceY: dy,
         velocityX: vx,
         velocityY: vy,
         direction: dir,
-      } as never);
+      });
     }
   }
 
   private handleUp(e: PointerEvent): void {
     if (!this.#pointers.has(e.pointerId)) return;
-    this.#cancelled = false;
-    this.release(e);
-    // `#cancelled` is false here and `release()` never sets it, so the only
-    // thing that can stop recognition is another pointer still being down. A
-    // cancellation arrives on `pointercancel`, which never gets this far.
+    this.release(e, false);
+    // The lift itself was not a cancellation, so the only thing that can stop
+    // recognition is another pointer still being down. A cancellation arrives
+    // on `pointercancel`, which never gets this far.
     if (this.#pointers.size > 0) return;
     this.recognize(e);
   }
 
   private handleCancel(e: PointerEvent): void {
     if (!this.#pointers.has(e.pointerId)) return;
-    this.#cancelled = true;
-    this.release(e);
-    this.#cancelled = false;
+    this.release(e, true);
   }
 
-  /** Drops one pointer, emitting the `end` of whatever it was the last part of. */
-  private release(e: PointerEvent): void {
+  /**
+   * Drops one pointer, emitting the `end` of whatever it was the last part of.
+   *
+   * `cancelled` is the caller's reason for lifting: `pointercancel` means the
+   * gesture is abandoned, so the recognized `kind` is dropped instead of kept.
+   */
+  private release(e: PointerEvent, cancelled: boolean): void {
     this.clearLongPress();
     // Read the metrics while both pointers are still on the map: the `end`
     // detail has to carry the final scale, not the reset one.
     const finalPinch = this.#pinching ? this.pinchMetrics() : null;
     this.#pointers.delete(e.pointerId);
 
-    if (this.#pinching) {
-      if (this.#pointers.size >= 2) {
-        this.setState({ pointerCount: this.#pointers.size });
-        return;
-      }
+    if (this.#pinching && this.#pointers.size < 2) {
+      // The pinch ends here: it gets its `end`, and the pose it left behind is
+      // cleared. With two pointers still down the pinch keeps running, so only
+      // the count moves.
       this.#pinching = false;
       if (this.enabled("pinch")) this.emitPinch(e, "end", finalPinch ?? { scale: 1, rotation: 0 });
       this.setState({ scale: 1, rotation: 0, pointerCount: this.#pointers.size });
-      if (this.#pointers.size > 0) return;
     } else {
       this.setState({ pointerCount: this.#pointers.size });
-      if (this.#pointers.size > 0) return;
     }
+    // A pointer still down means the interaction itself is not over.
+    if (this.#pointers.size > 0) return;
 
     // Last pointer of the interaction: the gesture itself is over.
     const wasPan = this.#panning;
     this.#panning = false;
-    const discardKind = this.#cancelled || this.#multiTouch;
+    const discardKind = cancelled || this.#multiTouch;
     this.setState({
       active: false,
       pointerCount: 0,
@@ -531,16 +522,14 @@ export class GestureController extends BaseController<GestureEvents> {
     if (!discardKind && wasPan) {
       const dx = e.clientX - this.#startX;
       const dy = e.clientY - this.#startY;
-      this.emitBoth("pan", {
-        kind: "pan",
-        ...baseFields(e, this.#state),
+      this.emitBoth("pan", e, {
         phase: "end",
         distanceX: dx,
         distanceY: dy,
         velocityX: 0,
         velocityY: 0,
         direction: directionFor(dx, dy),
-      } as never);
+      });
     }
     this.#multiTouch = false;
   }
@@ -560,15 +549,7 @@ export class GestureController extends BaseController<GestureEvents> {
       rotation: metrics.rotation,
       pointerCount: this.#pointers.size,
     });
-    this.emitBoth("pinch", {
-      kind: "pinch",
-      ...baseFields(e, this.#state),
-      phase,
-      scale: metrics.scale,
-      rotation: metrics.rotation,
-      distanceX: dx,
-      distanceY: dy,
-    } as never);
+    this.emitBoth("pinch", e, { phase, ...metrics, distanceX: dx, distanceY: dy });
   }
 
   /**
@@ -598,7 +579,7 @@ export class GestureController extends BaseController<GestureEvents> {
       const kind: GestureKind = isDouble ? "doubletap" : "tap";
       if (this.enabled(kind)) {
         this.setState({ kind });
-        this.emitBoth(kind, { kind, ...baseFields(e, this.#state) } as never);
+        this.emitBoth(kind, e);
       }
       // A pan already reported the drag, so `kind` is only advanced to `swipe`
       // when a gesture travelled far enough and fast enough to qualify.
@@ -609,13 +590,7 @@ export class GestureController extends BaseController<GestureEvents> {
     ) {
       const dir = directionFor(dx, dy);
       this.setState({ kind: "swipe", direction: dir });
-      this.emitBoth("swipe", {
-        kind: "swipe",
-        ...baseFields(e, this.#state),
-        direction: dir,
-        velocityX: vx,
-        velocityY: vy,
-      } as never);
+      this.emitBoth("swipe", e, { direction: dir, velocityX: vx, velocityY: vy });
     }
   }
 
@@ -662,9 +637,7 @@ export class GestureController extends BaseController<GestureEvents> {
       deltaX,
       deltaY,
     });
-    this.emitBoth("wheel", {
-      kind: "wheel",
-      ...baseFields(e, this.#state),
+    this.emitBoth("wheel", e, {
       phase: "move",
       deltaX,
       deltaY,
@@ -672,7 +645,7 @@ export class GestureController extends BaseController<GestureEvents> {
       deltaMode: e.deltaMode,
       ctrlKey: e.ctrlKey,
       scale,
-    } as never);
+    });
 
     this.clearWheel();
     // Every tick restarts the clock: a session is the burst of ticks, and

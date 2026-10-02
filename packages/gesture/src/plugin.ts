@@ -111,13 +111,10 @@ export function gesturePlugin(options: GestureOptions = {}): (alpine: Alpine) =>
 
         cleanup(() => {
           off();
-          const current = bindings.get(el);
-          if (!current) return;
-          current.refs -= 1;
-          if (current.refs > 0) return;
+          if (--binding.refs > 0) return;
           bindings.delete(el);
-          if (focused === current.controller) focused = null;
-          current.controller.destroy();
+          if (focused === controller) focused = null;
+          controller.destroy();
         });
       },
       packageName
