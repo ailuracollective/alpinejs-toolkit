@@ -129,5 +129,6 @@
       "merge": false,
       "updatePeerDependencies": true
     }
-  ]
+  ],
+  "initial-version": "0.1.0"
 }
