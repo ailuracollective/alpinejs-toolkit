@@ -64,14 +64,17 @@ const gestures = createGestureController({ element: surface });
 gestures.mount();
 gestures.enableGestures(["wheel"]);
 
-gestures.on("wheel", ({ scale, x, y }) => {
-  // `scale` is already the accumulated zoom; apply it anchored at the cursor.
+gestures.on("wheel", ({ state, x, y }) => {
+  // `state.committedScale` is the absolute zoom — every session folded into
+  // this one — so it outlives the session that produced it. Apply it anchored
+  // at the cursor.
   surface.style.transformOrigin = `${x}px ${y}px`;
-  surface.style.transform = `scale(${scale})`;
+  surface.style.transform = `scale(${state.committedScale})`;
 });
 ```
 
-See [Desktop zoom with the wheel](#desktop-zoom-with-the-wheel).
+See [Desktop zoom with the wheel](#desktop-zoom-with-the-wheel) and
+[Zoom that outlives a gesture](#zoom-that-outlives-a-gesture).
 
 ### 2. Alpine
 
@@ -114,26 +117,31 @@ contract as `x-on`.
 ### 3. Desktop zoom with the wheel
 
 `pinch` needs two fingers, so on a PC or laptop it never fires. The seventh
-kind, `wheel`, gives a mouse wheel the same output: a `scale` you can apply,
-anchored wherever the cursor is.
+kind, `wheel`, gives a mouse wheel the same output: a `committedScale` you can
+apply, anchored wherever the cursor is.
 
 ```html
 <div
   x-data="{
     zoom: 1,
-    base: 1,
     ox: 0,
     oy: 0,
     handleWheel(d) {
+      // The end of the session is a real event, and it arrives at rest:
+      // scale back to 1, deltas at 0, and state.committedScale already
+      // holding the zoom the session reached. There is nothing to commit,
+      // so nothing is.
+      if (d.phase === 'end') return
       // d.x / d.y are clientX / clientY, so they are viewport coordinates
       // and transform-origin wants them relative to the surface.
       const r = this.$refs.surface.getBoundingClientRect()
       this.ox = d.x - r.left
       this.oy = d.y - r.top
-      this.zoom = this.base * d.scale
+      // state.committedScale is absolute: every session before this one is
+      // folded into it, so a second burst compounds on the first by itself.
+      this.zoom = d.state.committedScale
     },
   }"
-  x-effect="if (!$store.gesture.active) base = zoom"
 >
   <div x-ref="surface" x-gesture.wheel="handleWheel">
     <div :style="'transform: scale(' + zoom + '); transform-origin: ' + ox + 'px ' + oy + 'px'">
@@ -155,14 +163,21 @@ What the package does and what it leaves to you:
   exponential.
 - **It does not scale anything.** A plain wheel does **not** zoom by itself: the
   recognizer reports a number, and applying it is the consumer's line. Nothing
-  on your page moves until you bind `scale` to a transform.
+  on your page moves until you bind `committedScale` to a transform.
 - **Y only.** `deltaX > 0` is a horizontal scroll, not a zoom — only `deltaY`
   drives `scale`. Wheel down (`deltaY > 0`) zooms out, wheel up zooms in.
-- **The session ends on its own.** After `wheelIdleDelay` ms (default `160`)
-  with no tick, `scale` returns to `1` and the deltas to `0`, so a turn of the
-  wheel can never accumulate into an unbounded zoom across a whole page
-  scroll. Commit the value you want to keep — the `x-effect` above does it the
-  moment `$store.gesture.active` goes back to `false`.
+- **The session ends with an event.** After `wheelIdleDelay` ms (default `160`)
+  with no tick, the recognizer emits one `wheel` with `phase: 'end'` — so the
+  zoom is committed _on_ an event rather than by polling for the absence of
+  input. The detail is at rest: `scale` is back to `1` and the deltas to `0`,
+  because nothing is being reported any more, while `committedScale` carries
+  what the session contributed. `originalEvent` is the last tick's `WheelEvent`,
+  since there is no new input to report. There is no `phase: 'start'`: a wheel
+  has no press to begin from, so a session opens with its first tick and that
+  tick is already a `"move"`.
+- **A cancelled or detached surface gets no `end`.** `cancel()` and `detach()`
+  both clear the pending timer, so an abandoned interaction is never mistaken
+  for a completed one.
 - **The cursor is the anchor.** `d.x`/`d.y` and `$store.gesture.x`/`.y` are
   the pointer position at the tick, and `active` stays `true` for the whole
   session, so the store keeps streaming them while the wheel turns.
@@ -177,40 +192,94 @@ What the package does and what it leaves to you:
   way to keep the page still while zooming; the listener is then attached
   non-passive, which is what makes cancelling legal. It applies to `wheel`
   only — no pointer event is ever cancelled.
+- **Bounds are yours.** `scaleRange` clamps `committedScale` after every session
+  multiplies into it, and the package ships no default for it — see
+  [Zoom that outlives a gesture](#zoom-that-outlives-a-gesture).
 
 ```ts
 Alpine.plugin(gesturePlugin({ preventDefault: true }));
 ```
 
+### 4. Zoom that outlives a gesture
+
+`scale` is relative to the session that produced it: it starts at `1` on every
+pinch and every wheel session and is back to `1` when that one ends. The
+absolute zoom is **`committedScale`**, and keeping it is the package's job
+rather than yours — it is the number a transform binds to, already accumulated
+across every pinch and every wheel session so far. It is a member of
+`GestureState`, and every recognized detail carries that state, so a handler
+reads it as `detail.state.committedScale` and the store as
+`$store.gesture.committedScale`.
+
+```ts
+const zoom = createGestureController({ element: surface, scaleRange: [0.5, 3] });
+
+zoom.on("pinch", ({ state }) => {
+  surface.style.transform = `scale(${state.committedScale})`;
+});
+
+zoom.resetScale(); // back to 100%, without cancelling the interaction
+```
+
+- **`committedScale` is absolute; `scale` is not.** Both are on the mirrored
+  state, and the state's snapshot rides along on every detail, so the
+  transform, the readout and the session all report the same zoom. A session's
+  own scale is multiplied into the total, never compounded step by step: a
+  pinch spreading in two steps to 1.25 and then 2 commits 2, a zoom the fingers
+  did describe.
+- **It outlives the session that produced it.** Nothing resets it when the
+  fingers lift or when a wheel session idles out, so two pinches compound with
+  no base of your own to carry forward. It starts at `1`, and a session that
+  returns to its baseline returns the surface to the zoom it started from.
+- **`cancel()` drops it.** An abandoned interaction leaves no zoom behind, the
+  same way it already dropped the accumulated wheel scale.
+- **`scaleRange` is a `[min, max]` pair, and it is your policy.** Set it and
+  `committedScale` is clamped to it after every session multiplies into it. The
+  package ships **no default bound**: what a surface considers its minimum and
+  maximum zoom is not something a recognizer can know, and a default would be
+  wrong for every surface that wants a different one. The runaway floor on a
+  wheel session's own scale is separate — it exists so the math cannot run away
+  within one session. Note that `scaleRange` is a controller option and
+  `x-gesture` carries no options, so a surface driven from markup has to clamp
+  the number itself.
+- **`resetScale()` is back to 100% without cancelling.** It returns
+  `committedScale` to `1` and leaves the interaction alone — for a "fit" or
+  "reset" control that should not abort a pinch in progress. The base of a
+  session already running moves with it, so that session carries on from the
+  reset instead of snapping the surface back. It is a `GestureController`
+  method, not part of `GestureStore`, so it is **not** on `$store.gesture`: a
+  surface driven from markup has no way to call it.
+
 ## API
 
 ### Exports
 
-| Export                          | Description                                                                                                                                                                                                                                                                                                                                                    | Type       |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| `GestureController`             | The recognizer class. Getters `state` and `isTracking`; methods `mount`, `attach(el)`, `detach`, `enableGestures(kinds)`, `cancel`, `destroy`. `enableGestures` unions kinds into the enabled set — it is what turns the opt-in `wheel` listener on for an already-attached controller                                                                         | `class`    |
-| `createGestureController`       | `createGestureController(options?) => GestureController` — constructs but **does not mount**, so an `element` option is not attached until you call `mount()`                                                                                                                                                                                                  | `function` |
-| `gesturePlugin`                 | `Alpine.plugin()` factory — `gesturePlugin(options?) => (alpine) => void`. Registers `$store.gesture` + `x-gesture`                                                                                                                                                                                                                                            | `function` |
-| `DEFAULT_GESTURE_STORE_KEY`     | Default store key, `"gesture"`                                                                                                                                                                                                                                                                                                                                 | `const`    |
-| `DEFAULT_GESTURE_DIRECTIVE_KEY` | Default directive name, `"gesture"` — the `x-gesture` part                                                                                                                                                                                                                                                                                                     | `const`    |
-| `GestureEvents`                 | Event map — `change`, `gesture`, and one per kind: `tap`, `doubletap`, `longpress`, `swipe`, `pan`, `pinch`, `wheel`                                                                                                                                                                                                                                           | `type`     |
-| `GestureKind`                   | `"tap" \| "doubletap" \| "longpress" \| "swipe" \| "pan" \| "pinch" \| "wheel"`                                                                                                                                                                                                                                                                                | `type`     |
-| `GestureDirection`              | `"up" \| "down" \| "left" \| "right" \| "none"`                                                                                                                                                                                                                                                                                                                | `type`     |
-| `GesturePhase`                  | `"start" \| "move" \| "end"` — the streaming gestures (`pan`, `pinch`, `wheel`) report all three, though a `wheel` is always `"move"`                                                                                                                                                                                                                          | `type`     |
-| `GestureState`                  | Live state: `active`, `kind`, `x`, `y`, `distanceX/Y`, `totalDistance`, `velocityX/Y`, `pointerCount`, `scale`, `rotation`, `direction`, `button`, `buttons`, `pointerType`, `deltaX/Y`                                                                                                                                                                        | `type`     |
-| `GestureOptions`                | Controller and plugin options — see [Options](#options)                                                                                                                                                                                                                                                                                                        | `type`     |
-| `GestureChangeDetail`           | `change` payload — `{ state, previous }`                                                                                                                                                                                                                                                                                                                       | `type`     |
-| `GesturePointerFields`          | `{ x, y, target, button, buttons, pointerType }` — on every gesture detail                                                                                                                                                                                                                                                                                     | `type`     |
-| `GestureDetailMap`              | Maps each of the seven kinds to its detail type. `tap`/`doubletap`/`longpress` carry only the pointer fields plus `kind`; `swipe` adds `direction`/`velocityX`/`velocityY`; `pan` adds `phase`/`distanceX/Y`/`velocityX/Y`/`direction`; `pinch` adds `phase`/`scale`/`rotation`/`distanceX/Y`; `wheel` adds `phase`/`deltaX/Y/Z`/`deltaMode`/`ctrlKey`/`scale` | `type`     |
-| `GestureStore`                  | What `$store.gesture` exposes: every `GestureState` field plus `cancel()`                                                                                                                                                                                                                                                                                      | `type`     |
-| `GestureManager`                | `{ id, state, isTracking, mount, destroy, cancel, attach, detach }` — the structural contract `GestureController` satisfies                                                                                                                                                                                                                                    | `type`     |
-| `GestureMouseButton`            | `0 \| 1 \| 2 \| 3 \| 4`                                                                                                                                                                                                                                                                                                                                        | `type`     |
-| `GesturePointerType`            | `"mouse" \| "touch" \| "pen"`                                                                                                                                                                                                                                                                                                                                  | `type`     |
-| `GesturePointerTypeName`        | `GesturePointerType \| (string & {})` — an open union, because a browser may report a pointer type this version does not know                                                                                                                                                                                                                                  | `type`     |
-| `GestureAlpine`                 | Alias of Alpine's own `Alpine` type                                                                                                                                                                                                                                                                                                                            | `type`     |
-| `GesturePluginCallback`         | `(alpine: Alpine) => void`                                                                                                                                                                                                                                                                                                                                     | `type`     |
+| Export                          | Description                                                                                                                                                                                                                                                                                                                                                                                                              | Type       |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| `GestureController`             | The recognizer class. Getters `state` and `isTracking`; methods `mount`, `attach(el)`, `detach`, `enableGestures(kinds)`, `resetScale`, `cancel`, `destroy`. `enableGestures` unions kinds into the enabled set — it is what turns the opt-in `wheel` listener on for an already-attached controller; `resetScale` returns `committedScale` to `1` without cancelling                                                    | `class`    |
+| `createGestureController`       | `createGestureController(options?) => GestureController` — constructs but **does not mount**, so an `element` option is not attached until you call `mount()`                                                                                                                                                                                                                                                            | `function` |
+| `gesturePlugin`                 | `Alpine.plugin()` factory — `gesturePlugin(options?) => (alpine) => void`. Registers `$store.gesture` + `x-gesture`                                                                                                                                                                                                                                                                                                      | `function` |
+| `DEFAULT_GESTURE_STORE_KEY`     | Default store key, `"gesture"`                                                                                                                                                                                                                                                                                                                                                                                           | `const`    |
+| `DEFAULT_GESTURE_DIRECTIVE_KEY` | Default directive name, `"gesture"` — the `x-gesture` part                                                                                                                                                                                                                                                                                                                                                               | `const`    |
+| `GestureEvents`                 | Event map — `change`, `gesture`, and one per kind: `tap`, `doubletap`, `longpress`, `swipe`, `pan`, `pinch`, `wheel`                                                                                                                                                                                                                                                                                                     | `type`     |
+| `GestureKind`                   | `"tap" \| "doubletap" \| "longpress" \| "swipe" \| "pan" \| "pinch" \| "wheel"`                                                                                                                                                                                                                                                                                                                                          | `type`     |
+| `GestureDirection`              | `"up" \| "down" \| "left" \| "right" \| "none"`                                                                                                                                                                                                                                                                                                                                                                          | `type`     |
+| `GesturePhase`                  | `"start" \| "move" \| "end"` — `pan` and `pinch` report all three; `wheel` reports `"move"` for every tick and one `"end"` when the session closes, and has no `"start"` because a wheel has no press to begin from                                                                                                                                                                                                      | `type`     |
+| `GestureState`                  | Live state: `active`, `kind`, `x`, `y`, `distanceX/Y`, `totalDistance`, `velocityX/Y`, `pointerCount`, `scale`, `committedScale`, `rotation`, `direction`, `button`, `buttons`, `pointerType`, `deltaX/Y`                                                                                                                                                                                                                | `type`     |
+| `GestureOptions`                | Controller and plugin options — see [Options](#options)                                                                                                                                                                                                                                                                                                                                                                  | `type`     |
+| `GestureChangeDetail`           | `change` payload — `{ state, previous }`                                                                                                                                                                                                                                                                                                                                                                                 | `type`     |
+| `GesturePointerFields`          | `{ x, y, target, button, buttons, pointerType }` — on every gesture detail                                                                                                                                                                                                                                                                                                                                               | `type`     |
+| `GestureDetailMap`              | Maps each of the seven kinds to its detail type. `tap`/`doubletap`/`longpress` carry only the pointer fields plus `kind`; `swipe` adds `direction`/`velocityX`/`velocityY`; `pan` adds `phase`/`distanceX/Y`/`velocityX/Y`/`direction`; `pinch` adds `phase`/`scale`/`rotation`/`distanceX/Y`; `wheel` adds `phase`/`deltaX/Y/Z`/`deltaMode`/`ctrlKey`/`scale` (plus `committedScale` on the state every detail carries) | `type`     |
+| `GestureStore`                  | What `$store.gesture` exposes: every `GestureState` field plus `cancel()`                                                                                                                                                                                                                                                                                                                                                | `type`     |
+| `GestureManager`                | `{ id, state, isTracking, mount, destroy, cancel, attach, detach }` — the structural contract `GestureController` satisfies                                                                                                                                                                                                                                                                                              | `type`     |
+| `GestureMouseButton`            | `0 \| 1 \| 2 \| 3 \| 4`                                                                                                                                                                                                                                                                                                                                                                                                  | `type`     |
+| `GesturePointerType`            | `"mouse" \| "touch" \| "pen"`                                                                                                                                                                                                                                                                                                                                                                                            | `type`     |
+| `GesturePointerTypeName`        | `GesturePointerType \| (string & {})` — an open union, because a browser may report a pointer type this version does not know                                                                                                                                                                                                                                                                                            | `type`     |
+| `GestureAlpine`                 | Alias of Alpine's own `Alpine` type                                                                                                                                                                                                                                                                                                                                                                                      | `type`     |
+| `GesturePluginCallback`         | `(alpine: Alpine) => void`                                                                                                                                                                                                                                                                                                                                                                                               | `type`     |
 
-A recognized gesture also carries `state` (a `GestureState` snapshot) and
+A recognized gesture also carries `state` (a `GestureState` snapshot, so
+`detail.state.committedScale` is the absolute zoom) and
 `originalEvent` (the `PointerEvent` for the six pointer kinds, the `WheelEvent`
 for `wheel`) on top of its kind-specific fields — those
 come from the internal `GestureRecognizedDetail`, which is what the events and
@@ -239,20 +308,21 @@ gestures.on("swipe", (detail) => {
 gestures.on("wheel", (detail) => {
   detail.deltaY; // pixels, deltaMode normalized; > 0 is wheel down = zoom out
   detail.scale; // exp(-ΣdeltaY × wheelScaleFactor) for this session
+  detail.state.committedScale; // that session's scale folded into every one before it
   detail.ctrlKey; // true when this tick is a trackpad pinch
-  detail.originalEvent; // the WheelEvent
+  detail.originalEvent; // the WheelEvent — the last tick's, on phase 'end'
 });
 ```
 
-| Kind        | When                                                                                     | Detail beyond the pointer fields                                         |
-| ----------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `tap`       | Pointer up within `tapThreshold` of where it went down                                   | —                                                                        |
-| `doubletap` | A second tap within `doubleTapInterval` of the first                                     | —                                                                        |
-| `longpress` | After `longPressDelay` with the finger still down and within `tapThreshold` of its start | —                                                                        |
-| `swipe`     | Pointer up at least `swipeThreshold` away **and** at least `swipeVelocity` px/ms         | `direction`, `velocityX`, `velocityY`                                    |
-| `pan`       | First move past `panThreshold`, then every move, then once on release                    | `phase`, `distanceX/Y`, `velocityX/Y`, `direction`                       |
-| `pinch`     | On the second pointer down, every move, and on release below two pointers                | `phase`, `scale`, `rotation`, `distanceX/Y`                              |
-| `wheel`     | Every tick of an opt-in wheel, unless a pointer is down                                  | `phase` (always `"move"`), `deltaX/Y/Z`, `deltaMode`, `ctrlKey`, `scale` |
+| Kind        | When                                                                                     | Detail beyond the pointer fields                                                        |
+| ----------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `tap`       | Pointer up within `tapThreshold` of where it went down                                   | —                                                                                       |
+| `doubletap` | A second tap within `doubleTapInterval` of the first                                     | —                                                                                       |
+| `longpress` | After `longPressDelay` with the finger still down and within `tapThreshold` of its start | —                                                                                       |
+| `swipe`     | Pointer up at least `swipeThreshold` away **and** at least `swipeVelocity` px/ms         | `direction`, `velocityX`, `velocityY`                                                   |
+| `pan`       | First move past `panThreshold`, then every move, then once on release                    | `phase`, `distanceX/Y`, `velocityX/Y`, `direction`                                      |
+| `pinch`     | On the second pointer down, every move, and on release below two pointers                | `phase`, `scale`, `rotation`, `distanceX/Y`                                             |
+| `wheel`     | Every tick of an opt-in wheel, unless a pointer is down, plus one `end` per session      | `phase` (`"move"` per tick, one `"end"`), `deltaX/Y/Z`, `deltaMode`, `ctrlKey`, `scale` |
 
 `change` fires on every state patch — pointer down, move, up, cancel — carrying
 `{ state, previous }`, and is what the store syncs from.
@@ -277,6 +347,7 @@ $store.gesture.velocityX;
 $store.gesture.velocityY;
 $store.gesture.pointerCount; // fingers down
 $store.gesture.scale; // pinch or wheel scale, 1 at rest
+$store.gesture.committedScale; // the absolute zoom: every session folded together, 1 at rest
 $store.gesture.rotation; // pinch rotation in degrees
 $store.gesture.direction;
 $store.gesture.button;
@@ -296,10 +367,15 @@ happening on _this_ element"; for the latter, read the handler's detail.
 
 For a wheel that second sentence is not quite true: `x`/`y` and the deltas
 stream for the whole wheel session, so `$store.gesture.x` is a usable cursor
-anchor — but `scale` is back to `1` once the session ends.
+anchor — but `scale` is back to `1` once the session ends, while
+`committedScale` keeps the zoom the session reached.
 
 `cancel()` abandons the interaction on the focused surface and emits no
-gesture. It is the escape hatch for a drag the user has walked away from.
+gesture. It is the escape hatch for a drag the user has walked away from. It
+also drops the committed zoom back to `1`: an abandoned interaction leaves no
+zoom behind. To go back to 100% _without_ cancelling, call
+`controller.resetScale()` — which is not on the store, so see
+[Zoom that outlives a gesture](#zoom-that-outlives-a-gesture).
 
 ### Options
 
@@ -315,6 +391,7 @@ type GestureOptions = {
   swipeVelocity?: number; // default: 0.3 (px/ms)
   panThreshold?: number; // default: 10 (px)
   preventDefault?: boolean; // default: undefined — only read for 'wheel'
+  scaleRange?: readonly [number, number]; // default: none — a consumer policy
   mouseButtons?: readonly GestureMouseButton[]; // default: [0] — left button only
   wheelScaleFactor?: number; // default: 0.002
   wheelIdleDelay?: number; // default: 160 (ms)
@@ -323,23 +400,24 @@ type GestureOptions = {
 };
 ```
 
-| Option              | Default                 | Description                                                                                                                                                                                                                                                                         |
-| ------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gestures`          | the six pointer kinds   | Narrows what the recognizer looks for. A kind not in the list is not detected **and** its per-kind event never fires — the check happens before the emit. `wheel` is **not** in the default set: opt in with `gestures: ['pan', 'wheel']` or `controller.enableGestures(['wheel'])` |
-| `tapThreshold`      | `10`                    | Movement at or below this still counts as a tap. It also gates the long press: moving past it cancels a pending `longpress`                                                                                                                                                         |
-| `doubleTapInterval` | `300`                   | Window in which a second tap becomes a `doubletap`. The first tap has already fired as `tap` by then                                                                                                                                                                                |
-| `longPressDelay`    | `500`                   | Hold time before `longpress` fires. The gesture fires **while still down**, not on release                                                                                                                                                                                          |
-| `swipeThreshold`    | `50`                    | Minimum travel, in px, for a swipe                                                                                                                                                                                                                                                  |
-| `swipeVelocity`     | `0.3`                   | Minimum speed in **px per millisecond** — 0.3 px/ms is 300 px/s. Compared against `Math.hypot(vx, vy)`                                                                                                                                                                              |
-| `panThreshold`      | `10`                    | Movement before the first `pan` of a drag. Every later move reports `"move"`                                                                                                                                                                                                        |
-| `mouseButtons`      | `[0]`                   | Which mouse buttons start a gesture — left only by default. `pointerType` `touch` and `pen` always report button `0` and are always accepted, so this option only ever filters mice                                                                                                 |
-| `wheelScaleFactor`  | `0.002`                 | How fast one wheel pixel changes the scale: `scale = exp(-Σ deltaY × factor)`. Larger zooms faster; `0` freezes it at `1`                                                                                                                                                           |
-| `wheelIdleDelay`    | `160`                   | Milliseconds of wheel silence that close a wheel session and reset `scale` to `1` and the deltas to `0`. Every tick restarts the clock                                                                                                                                              |
-| `preventDefault`    | `undefined`             | `wheel` only. When set, the wheel listener is attached non-passive and each tick calls `preventDefault()`, which is the only way to suppress the page scroll while zooming. No pointer event is ever cancelled                                                                      |
-| `element`           | —                       | Attach target. At plugin level this is a surface with no `x-gesture` handlers whose live values still reach the store                                                                                                                                                               |
-| `storeKey`          | `"gesture"`             | `$store` key. Plugin-only                                                                                                                                                                                                                                                           |
-| `directiveKey`      | `"gesture"`             | Directive name. Plugin-only. `gesturePlugin({ directiveKey: 'swipe' })` registers `x-swipe`                                                                                                                                                                                         |
-| `id`                | `generateId("gesture")` | Controller id. The plugin does not use it — it builds one controller per element and lets each generate its own                                                                                                                                                                     |
+| Option              | Default                 | Description                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gestures`          | the six pointer kinds   | Narrows what the recognizer looks for. A kind not in the list is not detected **and** its per-kind event never fires — the check happens before the emit. `wheel` is **not** in the default set: opt in with `gestures: ['pan', 'wheel']` or `controller.enableGestures(['wheel'])`                                                                                                      |
+| `tapThreshold`      | `10`                    | Movement at or below this still counts as a tap. It also gates the long press: moving past it cancels a pending `longpress`                                                                                                                                                                                                                                                              |
+| `doubleTapInterval` | `300`                   | Window in which a second tap becomes a `doubletap`. The first tap has already fired as `tap` by then                                                                                                                                                                                                                                                                                     |
+| `longPressDelay`    | `500`                   | Hold time before `longpress` fires. The gesture fires **while still down**, not on release                                                                                                                                                                                                                                                                                               |
+| `swipeThreshold`    | `50`                    | Minimum travel, in px, for a swipe                                                                                                                                                                                                                                                                                                                                                       |
+| `swipeVelocity`     | `0.3`                   | Minimum speed in **px per millisecond** — 0.3 px/ms is 300 px/s. Compared against `Math.hypot(vx, vy)`                                                                                                                                                                                                                                                                                   |
+| `panThreshold`      | `10`                    | Movement before the first `pan` of a drag. Every later move reports `"move"`                                                                                                                                                                                                                                                                                                             |
+| `mouseButtons`      | `[0]`                   | Which mouse buttons start a gesture — left only by default. `pointerType` `touch` and `pen` always report button `0` and are always accepted, so this option only ever filters mice                                                                                                                                                                                                      |
+| `wheelScaleFactor`  | `0.002`                 | How fast one wheel pixel changes the scale: `scale = exp(-Σ deltaY × factor)`. Larger zooms faster; `0` freezes it at `1`                                                                                                                                                                                                                                                                |
+| `wheelIdleDelay`    | `160`                   | Milliseconds of wheel silence that close a wheel session: one `wheel` with `phase: 'end'` is emitted, and `scale` resets to `1` and the deltas to `0` (`committedScale` does not). Every tick restarts the clock                                                                                                                                                                         |
+| `preventDefault`    | `undefined`             | `wheel` only. When set, the wheel listener is attached non-passive and each tick calls `preventDefault()`, which is the only way to suppress the page scroll while zooming. No pointer event is ever cancelled                                                                                                                                                                           |
+| `scaleRange`        | — (none)                | `[min, max]` clamping `committedScale` after every session multiplies into it. **No default is shipped**: what a surface considers its minimum and maximum zoom is a consumer policy, and a default would be wrong for every surface that wants a different one. The runaway floor on a wheel session's own scale is separate. Not settable from markup — `x-gesture` carries no options |
+| `element`           | —                       | Attach target. At plugin level this is a surface with no `x-gesture` handlers whose live values still reach the store                                                                                                                                                                                                                                                                    |
+| `storeKey`          | `"gesture"`             | `$store` key. Plugin-only                                                                                                                                                                                                                                                                                                                                                                |
+| `directiveKey`      | `"gesture"`             | Directive name. Plugin-only. `gesturePlugin({ directiveKey: 'swipe' })` registers `x-swipe`                                                                                                                                                                                                                                                                                              |
+| `id`                | `generateId("gesture")` | Controller id. The plugin does not use it — it builds one controller per element and lets each generate its own                                                                                                                                                                                                                                                                          |
 
 **`preventDefault` applies to `wheel`, and to nothing else.** The controller
 never cancels a pointer event — the browser is left to pan and pinch-zoom, and
@@ -411,20 +489,27 @@ a `touch-none` on a page-level container makes the page unscrollable by touch.
   an existing consumer pays nothing — but it means a missing zoom is a missing
   opt-in, not a bug.
 - **A plain wheel does not scale anything on its own.** The recognizer
-  accumulates and reports `scale`; applying it to a transform is the consumer's
-  line. Nothing on the page moves until you bind it.
-- **The wheel scale is Y-only and resets between sessions.** A horizontal wheel
-  is a scroll, not a zoom, and `scale` returns to `1` after `wheelIdleDelay` of
-  silence, so a zoom that must survive more than one burst has to be committed
-  by the consumer — multiplying the session scale by the value carried over from
-  the last one.
+  accumulates and reports `scale` and `committedScale`; applying one to a
+  transform is the consumer's line. Nothing on the page moves until you bind it.
+- **The wheel scale is Y-only, and `scale` resets between sessions.** A
+  horizontal wheel is a scroll, not a zoom, and `scale` returns to `1` after
+  `wheelIdleDelay` of silence. The absolute zoom does not reset: bind
+  `committedScale` rather than carrying a base forward by hand.
 - **A wheel tick during a drag is ignored.** While any pointer is down the
   `wheel` handler returns early, so a trackpad that reports both cannot corrupt
   a running pinch. The cost is the other direction: a wheel over a surface the
   user is also touching does nothing at all.
-- **The wheel end emits nothing.** The end of a session is an absence of input,
-  not a gesture, so there is no `wheel` detail with `phase: 'end'` to commit a
-  zoom on. Watch `$store.gesture.active` going back to `false` instead.
+- **The wheel session ends with an event, but only a real one.** There is a
+  `wheel` detail with `phase: 'end'` once `wheelIdleDelay` of silence closes a
+  session, and it arrives at rest: `scale` back to `1`, deltas at `0`,
+  `committedScale` carrying what the session contributed, and `originalEvent`
+  the last tick's `WheelEvent` rather than a new one. There is no `end` on
+  `cancel()` or `detach()`, and no `phase: 'start'` at all — a session opens
+  with its first tick, which is already a `"move"`.
+- **There is no default zoom bound.** `scaleRange` is the only clamp on
+  `committedScale` and it ships unset, because a minimum and maximum zoom is a
+  consumer policy. A long trackpad pinch-out can drive the zoom a long way
+  without one.
 - **`pan` and `swipe` are not exclusive.** A long, fast flick fires `pan`
   (`start`, `move`, `end`) and then `swipe` for the same drag. If that matters,
   narrow the list with `gestures: ['swipe']` and drop the pan.
@@ -459,13 +544,25 @@ a `touch-none` on a page-level container makes the page unscrollable by touch.
 
 ## Size
 
-`8.24 kB raw / 2.74 kB gzip` · budget `3 kB` · externalized peers: `alpinejs`,
-`@ailura/alpinejs-core` · `size-limit` + `publint` + `attw` verified.
+`8.68 kB raw / 3.11 kB gzip` · budget `3.2 kB` — about 90 B of headroom ·
+externalized peers: `alpinejs`, `@ailura/alpinejs-core` · `size-limit` +
+`publint` + `attw` verified.
 
-The raw size is the largest in the Primitives layer, and it is close to the
-declared budget's neighbourhood for a package that registers no store keys worth
-the name. Seven recognisers, a multi-pointer map, and eight typed events account
-for it.
+Measured with `pnpm --filter @ailura/alpinejs-gesture run build && pnpm
+--filter @ailura/alpinejs-gesture run size`. The raw size is the largest in the
+Primitives layer: seven recognisers, a multi-pointer map, eight typed events,
+and the absolute-zoom bookkeeping — `committedScale`, `scaleRange`,
+`resetScale()` and the wheel session's `end` — account for it.
+
+The budget was raised from `3 kB` to `3.2 kB` for the absolute zoom, and it is
+worth being precise about how tight it had become: the same build without
+`committedScale` measures **2.96 kB gzip**, so the old budget had 37 B of
+headroom against a feature that costs about 140 B. No subpart of it fit — the
+cheapest, `resetScale()`, is half the headroom on its own — so the alternatives
+were to raise the budget, to move the zoom bookkeeping into its own package, or
+to drop behaviour that was written and reviewed. Trimming was tried first and
+bought 30 B of the 140; the rest of the gap was not reachable without giving up
+one of the four behaviours, so the budget moved instead.
 
 ## Architecture
 
@@ -483,7 +580,8 @@ pnpm run typecheck     # tsc --noEmit
 Four suites: `pointer.test.ts` for the recognisers' thresholds and event
 ordering, `events.test.ts` for the per-kind channels, `directive.test.ts` for
 `x-gesture` wiring and refcounted teardown, and `wheel.test.ts` for the opt-in
-wheel listener, delta normalization, scale accumulation and idle reset.
+wheel listener, delta normalization, scale accumulation, the committed zoom
+across sessions and the idle `end` event.
 
 ## License
 

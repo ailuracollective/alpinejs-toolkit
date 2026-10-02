@@ -21,6 +21,7 @@ export interface GestureState {
   readonly velocityY: number;
   readonly pointerCount: number;
   readonly scale: number;
+  readonly committedScale: number;
   readonly rotation: number;
   readonly direction: GestureDirection;
   readonly button: GestureMouseButton;
@@ -49,6 +50,17 @@ export interface GestureOptions {
    */
   readonly preventDefault?: boolean;
   readonly mouseButtons?: readonly GestureMouseButton[];
+  /**
+   * Clamp for `committedScale`, as `[min, max]`, applied after every session
+   * multiplies into it.
+   *
+   * Bounds are a consumer policy and the package ships none: what a surface
+   * considers its minimum and maximum zoom is not something a recognizer can
+   * know, and a default would be wrong for every surface that wants a
+   * different one. The runaway floor on a wheel session's own scale is
+   * separate — it exists so the math cannot run away within one session.
+   */
+  readonly scaleRange?: readonly [number, number];
   readonly wheelScaleFactor?: number;
   readonly wheelIdleDelay?: number;
   readonly storeKey?: string;
@@ -96,6 +108,15 @@ export interface GesturePinchDetail extends GestureEventBase<"pinch"> {
 }
 
 export interface GestureWheelDetail extends GestureEventBase<"wheel"> {
+  /**
+   * `"move"` for every tick, and one `"end"` when the session closes.
+   *
+   * There is no `"start"`: a wheel has no press to begin from, so a session
+   * begins with its first tick and that tick is already a `"move"`. The idle
+   * delay that closes it is an event rather than the absence of one, so a
+   * consumer commits its zoom when the session ends rather than polling for
+   * `active` to flip.
+   */
   readonly phase: GesturePhase;
   readonly deltaX: number;
   readonly deltaY: number;

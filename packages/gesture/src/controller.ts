@@ -75,6 +75,7 @@ export function emptyState(patch?: Partial<GestureState>): GestureState {
     velocityY: 0,
     pointerCount: 0,
     scale: 1,
+    committedScale: 1,
     rotation: 0,
     direction: "none",
     button: 0,
@@ -174,6 +175,17 @@ export class GestureController extends BaseController<GestureEvents> {
   /** Σ`deltaY` of the running wheel session; the scale is derived from it. */
   #wheelAccumulator = 0;
   #wheelTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The last recognized tick, kept for the `end` the session closes with.
+   *
+   * Only a tick assigns it and only the timer that tick arms reads it, so it is
+   * never read before it is written.
+   */
+  #lastWheel!: WheelEvent;
+  /** The absolute zoom: every session's `scale` multiplied into this. */
+  #committedScale = 1;
+  /** What `#committedScale` was when the running session began. */
+  #scaleBase = 1;
 
   /** The live listeners, so `detach()` removes exactly what `attach()` added. */
   #listeners = new Map<string, EventListener>();
@@ -213,6 +225,41 @@ export class GestureController extends BaseController<GestureEvents> {
     const detail = { kind, ...baseFields(e, this.#state), ...extra } as GestureRecognizedDetail;
     this.emit("gesture", detail);
     if (this.events.listenerCount(kind) > 0) this.emit(kind, detail);
+  }
+
+  /**
+   * Fold one session's relative `scale` into the running total, in `#committedScale`.
+   *
+   * A session's scale is measured from where that session started — the pinch
+   * baseline, or the wheel accumulator — so it already contains everything the
+   * session has done so far. Multiplying each step into the total would
+   * therefore compound the session's own history: a pinch spreading in two
+   * steps to 1.25 and then 2 would commit 2.5, a zoom the fingers never
+   * described. The total is the zoom the user began the session from times how
+   * far the session has taken it, which also means a session that returns to
+   * its baseline returns the surface to the zoom it started from.
+   *
+   * `scaleRange` is read here rather than resolved into a pair of sentinel
+   * bounds in the constructor: a field pair and its infinities cost more in the
+   * bundle than the one option lookup on an object this class already reads per
+   * tick.
+   */
+  private commitScale(sessionScale: number): void {
+    const total = this.#scaleBase * sessionScale;
+    const range = this.#options.scaleRange;
+    this.#committedScale = range ? Math.min(Math.max(total, range[0]), range[1]) : total;
+  }
+
+  /**
+   * Return the committed zoom to 1 — "back to 100%" — without cancelling.
+   *
+   * The base of a session already in flight moves with it, so a pinch or a
+   * wheel session that is still running carries on from the reset rather than
+   * snapping the surface back to the zoom it started the session from.
+   */
+  resetScale(): void {
+    this.#committedScale = this.#scaleBase = 1;
+    this.setState({ committedScale: 1 });
   }
 
   private enabled(kind: GestureKind): boolean {
@@ -282,7 +329,7 @@ export class GestureController extends BaseController<GestureEvents> {
   private attachWheel(): void {
     const element = this.#element;
     if (!element || !this.enabled("wheel") || this.#listeners.has("wheel")) return;
-    const listener = ((e: WheelEvent) => this.handleWheel(e)) as EventListener;
+    const listener = this.handleWheel.bind(this) as EventListener;
     this.#listeners.set("wheel", listener);
     element.addEventListener("wheel", listener, { passive: !this.#preventZoom });
   }
@@ -316,7 +363,7 @@ export class GestureController extends BaseController<GestureEvents> {
     this.detach();
     this.#element = element;
     for (const [type, handler] of POINTER_EVENTS) {
-      const listener = ((e: PointerEvent) => this[handler](e)) as EventListener;
+      const listener = this[handler].bind(this) as EventListener;
       this.#listeners.set(type, listener);
       element.addEventListener(type, listener);
     }
@@ -342,6 +389,9 @@ export class GestureController extends BaseController<GestureEvents> {
    * recogniser. The long-press timer is cleared, every pointer is forgotten,
    * and the reported state is reset; `lastTap` is deliberately kept, so a
    * cancel does not break an in-flight double-tap window.
+   *
+   * The committed zoom goes with the rest: an abandoned interaction leaves no
+   * zoom behind, the same way it already drops the accumulated wheel scale.
    */
   cancel(): void {
     this.clearLongPress();
@@ -354,11 +404,13 @@ export class GestureController extends BaseController<GestureEvents> {
     this.#pinching = false;
     this.#multiTouch = false;
     this.#panning = false;
+    this.#committedScale = 1;
     this.setState({
       active: false,
       kind: null,
       pointerCount: 0,
       scale: 1,
+      committedScale: 1,
       rotation: 0,
       deltaX: 0,
       deltaY: 0,
@@ -385,7 +437,7 @@ export class GestureController extends BaseController<GestureEvents> {
    * never has to re-ask whether the pair it wants exists.
    */
   private pointerDelta(): [number, number] {
-    const [a, b] = [...this.#pointers.values()];
+    const [a, b] = this.#pointers.values();
     return b ? [b.x - a.x, b.y - a.y] : [0, 0];
   }
 
@@ -417,6 +469,8 @@ export class GestureController extends BaseController<GestureEvents> {
       this.setState(
         // The idle state, with the pose of the pointer that just went down on
         // top of it: everything the interaction is not carrying yet is reset.
+        // The committed scale is the one exception — it is the zoom from
+        // every gesture before this one, which is the whole reason it exists.
         emptyState({
           active: true,
           x: e.clientX,
@@ -425,6 +479,7 @@ export class GestureController extends BaseController<GestureEvents> {
           button: e.button as 0,
           buttons: e.buttons,
           pointerType: e.pointerType,
+          committedScale: this.#committedScale,
         })
       );
     } else {
@@ -441,6 +496,9 @@ export class GestureController extends BaseController<GestureEvents> {
       this.#pinching = true;
       this.#multiTouch = true;
       this.#panning = false;
+      // The baseline is taken here, so the zoom this pinch commits is measured
+      // from the zoom the user was already at when the second finger landed.
+      this.#scaleBase = this.#committedScale;
       this.emitPinch(e, "start", { scale: 1, rotation: 0 });
     } else if (first) {
       this.armLongPress(e);
@@ -592,11 +650,17 @@ export class GestureController extends BaseController<GestureEvents> {
   ) {
     if (!this.enabled("pinch")) return;
     const [dx, dy] = this.pointerDelta();
+    // Applied to the base rather than multiplied into the total, so the `end`
+    // reports the zoom the last `move` reached instead of reaching it twice.
+    // It lands in the state, not the detail: `baseFields()` puts the whole
+    // state on every detail, so `d.state.committedScale` is already there.
+    this.commitScale(metrics.scale);
     this.setState({
       kind: "pinch",
       x: e.clientX,
       y: e.clientY,
       scale: metrics.scale,
+      committedScale: this.#committedScale,
       rotation: metrics.rotation,
       pointerCount: this.#pointers.size,
     });
@@ -681,6 +745,14 @@ export class GestureController extends BaseController<GestureEvents> {
       Math.exp(-this.#wheelAccumulator * (this.#options.wheelScaleFactor ?? 0.002)),
       WHEEL_MIN_SCALE
     );
+    // The base is taken once, on the tick that opens the session: the ticks
+    // after it measure from the same accumulator, so each one already carries
+    // the whole session and none of them starts a second multiply. An armed
+    // timer is what "a session is already running" means, and `cancel()`,
+    // `detach()` and `endWheelSession()` all clear it.
+    if (!this.#wheelTimer) this.#scaleBase = this.#committedScale;
+    this.#lastWheel = e;
+    this.commitScale(scale);
 
     this.setState({
       active: true,
@@ -693,6 +765,7 @@ export class GestureController extends BaseController<GestureEvents> {
       // keeps a consumer that switches on `pointerType` working unchanged.
       pointerType: "mouse",
       scale,
+      committedScale: this.#committedScale,
       deltaX,
       deltaY,
     });
@@ -718,16 +791,34 @@ export class GestureController extends BaseController<GestureEvents> {
   /**
    * Close the wheel session after `wheelIdleDelay` of silence.
    *
-   * No event is emitted: the end of a wheel is an absence of input, not a
-   * gesture, and a `wheel` detail carrying a reset scale would be a second
-   * meaning for the same event. Consumers read the state instead.
+   * The end is an event, so a consumer commits its zoom when the session
+   * closes instead of polling `active` for the absence of input. The detail is
+   * at rest — `scale` back to `1`, deltas zeroed — because nothing is being
+   * reported any more; what the session contributed is in the state's
+   * `committedScale`, which is the number a consumer binds its transform to.
+   * `originalEvent` is the last tick: there is no new input to report, and
+   * `null` would give the same detail a second meaning depending on the phase.
+   *
+   * A cancelled or detached surface never gets here — both clear the timer — so
+   * an abandoned interaction is not mistaken for a completed one.
    */
   private endWheelSession(): void {
     this.#wheelTimer = null;
     this.#wheelAccumulator = 0;
     // `active` stays true for the whole session so the store mirror keeps
     // streaming the cursor position, which is the anchor point of the zoom.
+    // The reset lands first so the `change` event and the `end` detail below
+    // agree that the session is over.
     this.setState({ active: false, kind: null, scale: 1, deltaX: 0, deltaY: 0 });
+    this.emitBoth("wheel", this.#lastWheel, {
+      phase: "end",
+      deltaX: 0,
+      deltaY: 0,
+      deltaZ: 0,
+      deltaMode: 0,
+      ctrlKey: this.#lastWheel.ctrlKey,
+      scale: 1,
+    });
   }
 
   protected teardown(): void {

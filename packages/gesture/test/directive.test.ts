@@ -145,6 +145,7 @@ const STATE_KEYS = [
   "velocityY",
   "pointerCount",
   "scale",
+  "committedScale",
   "rotation",
   "direction",
   "button",
@@ -572,6 +573,33 @@ describe("$store.gesture", () => {
     // it rides the `wheel` detail and not the state.
     expect("deltaZ" in store()).toBe(false);
     expect(store().scale).toBeLessThan(1);
+  });
+
+  test("mirrors the committed scale, which outlives the session", async () => {
+    const el = html(`
+      <div>
+        <div id="surface" x-gesture.wheel="() => {}"></div>
+      </div>
+    `);
+    mount(el as HTMLElement);
+    await settled();
+    const surface = find(el, "#surface");
+
+    // The mirror needs no list of its own for this key: it is generated from
+    // the same `emptyState()` the recognizer starts from.
+    wheel(surface, { deltaY: -100 });
+    await settled();
+
+    expect(store().committedScale).toBeGreaterThan(1);
+    // The session scale is the zoom in progress; the committed one is the zoom
+    // the surface is left at, which is what a consumer binds its transform to.
+    expect(store().scale).toBeGreaterThan(1);
+
+    store().cancel();
+    await settled();
+
+    // `cancel()` drops the whole session, the committed zoom included.
+    expect(store().committedScale).toBe(1);
   });
 
   test("cancel() ends the wheel session", async () => {

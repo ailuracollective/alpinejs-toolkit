@@ -17,7 +17,7 @@
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 
 import { GestureController } from "../src/controller";
-import type { GestureRecognizedDetail, GestureWheelDetail } from "../src/types";
+import type { GestureRecognizedDetail } from "../src/types";
 
 const mounted: GestureController[] = [];
 
@@ -40,11 +40,19 @@ function wheelSurface(options = {}) {
   return setup({ gestures: ["wheel"], ...options });
 }
 
+/**
+ * Exactly what a `wheel` listener receives: the wheel detail, plus the
+ * `state` every emitted detail carries. `committedScale` lives on that state
+ * rather than on the detail, which is why the per-kind detail alone is not the
+ * type these tests record.
+ */
+type WheelDetail = Extract<GestureRecognizedDetail, { kind: "wheel" }>;
+
 /** Only the wheel details, so the delta assertions read cleanly. */
-function wheelRecorder(controller: GestureController): GestureWheelDetail[] {
-  const seen: GestureWheelDetail[] = [];
+function wheelRecorder(controller: GestureController): WheelDetail[] {
+  const seen: WheelDetail[] = [];
   controller.on("wheel", (detail) => {
-    seen.push(detail as unknown as GestureWheelDetail);
+    seen.push(detail as unknown as WheelDetail);
   });
   return seen;
 }
@@ -240,7 +248,144 @@ describe("wheel sessions", () => {
       expect(controller.state.kind).toBeNull();
       expect(controller.state.scale).toBe(1);
       expect(controller.state.deltaY).toBe(0);
-      expect(seen).toHaveLength(2);
+      // This used to end here, with the state assertions above the whole
+      // story: the end of a wheel session was reported by its absence, so a
+      // consumer had to poll `active` to notice it. It is an event now — one,
+      // carrying the scale the session committed.
+      expect(seen.filter((d) => d.phase === "end")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("the end detail carries the committed scale and the tick it ended on", () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, element } = wheelSurface();
+      const seen = wheelRecorder(controller);
+
+      wheel(element, { deltaY: -100, x: 12, y: 34 });
+      const last = wheel(element, { deltaY: -100, x: 12, y: 34 });
+      vi.advanceTimersByTime(200);
+
+      const end = seen.find((d) => d.phase === "end");
+      // Every session value is back at rest: the deltas are the input that
+      // ended, and there was none.
+      expect(end?.scale).toBe(1);
+      expect(end?.deltaX).toBe(0);
+      expect(end?.deltaY).toBe(0);
+      expect(end?.deltaZ).toBe(0);
+      expect(end?.deltaMode).toBe(0);
+      // Still the gesture the session was: a plain wheel never got this far.
+      expect(end?.ctrlKey).toBe(true);
+      // There is no new input to report, so the detail carries the last tick
+      // rather than `null`, which would be a second meaning for the same
+      // detail depending on the phase.
+      expect(end?.originalEvent).toBe(last);
+      // exp(200 × 0.002): the two ticks of one session compose once, from a
+      // base of 1. Multiplying each tick's session scale into the total would
+      // report exp(200 × 0.002) × exp(100 × 0.002) instead.
+      expect(end?.state.committedScale).toBeCloseTo(Math.exp(200 * 0.002), 10);
+      expect(controller.state.committedScale).toBeCloseTo(Math.exp(200 * 0.002), 10);
+      // The state reset happens first, so the `change` event and the detail
+      // agree that the session is over.
+      expect(end?.state).toBe(controller.state);
+      expect(end?.state.active).toBe(false);
+
+      // Exactly once: the timer the end came from is the timer it cleared.
+      vi.advanceTimersByTime(500);
+      expect(seen.filter((d) => d.phase === "end")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("the committed scale survives the session that produced it", () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, element } = wheelSurface();
+
+      wheel(element, { deltaY: -100 });
+      expect(controller.state.committedScale).toBeCloseTo(1.22, 2);
+      vi.advanceTimersByTime(200);
+
+      wheel(element, { deltaY: -100 });
+      // Two sessions of exp(100 × 0.002), composed once each. The session
+      // scale itself is back at its own starting point, so this is two ticks of
+      // zoom — not every tick that has ever arrived on this surface.
+      expect(controller.state.committedScale).toBeCloseTo(Math.exp(100 * 0.002) ** 2, 2);
+      expect(controller.state.scale).toBeCloseTo(1.22, 2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("resetScale() drops the zoom the sessions accumulated", () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, element } = wheelSurface();
+
+      wheel(element, { deltaY: -100 });
+      vi.advanceTimersByTime(200);
+      wheel(element, { deltaY: -100 });
+      expect(controller.state.committedScale).toBeCloseTo(Math.exp(100 * 0.002) ** 2, 2);
+
+      controller.resetScale();
+
+      expect(controller.state.committedScale).toBe(1);
+      wheel(element, { deltaY: -100 });
+      expect(controller.state.committedScale).toBeCloseTo(Math.exp(200 * 0.002), 2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("scaleRange clamps the committed scale at both ends", () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, element } = wheelSurface({ scaleRange: [0.9, 1.5] });
+
+      wheel(element, { deltaY: -100 });
+      wheel(element, { deltaY: -100 });
+      expect(controller.state.committedScale).toBeCloseTo(1.49, 2);
+      // The third tick would take it to 1.82, past the top of the range.
+      wheel(element, { deltaY: -100 });
+      expect(controller.state.committedScale).toBe(1.5);
+
+      vi.advanceTimersByTime(200);
+      // The other end, from the bound: 1.5 × exp(-300 × 0.002) is 0.82.
+      wheel(element, { deltaY: 100 });
+      wheel(element, { deltaY: 100 });
+      wheel(element, { deltaY: 100 });
+      expect(controller.state.committedScale).toBe(0.9);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("cancel() and detach() close the session without an end", () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, element } = wheelSurface();
+      const seen = wheelRecorder(controller);
+
+      wheel(element, { deltaY: -100 });
+      controller.cancel();
+      vi.advanceTimersByTime(500);
+
+      // A cancelled interaction is not a completed one, so it gets no `end`.
+      expect(seen.filter((d) => d.phase === "end")).toHaveLength(0);
+      expect(controller.state.committedScale).toBe(1);
+
+      const detached = wheelSurface();
+      const detachedSeen = wheelRecorder(detached.controller);
+      wheel(detached.element, { deltaY: -100 });
+      detached.controller.detach();
+      vi.advanceTimersByTime(500);
+
+      // And detaching is not a gesture at all: the surface is gone, so there
+      // is nobody left to report a zoom to.
+      expect(detachedSeen.filter((d) => d.phase === "end")).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }
@@ -306,7 +451,7 @@ describe("deltaMode", () => {
     const { controller, element } = wheelSurface();
     const modes: number[] = [];
     controller.on("wheel", (detail) => {
-      modes.push((detail as unknown as GestureWheelDetail).deltaMode);
+      modes.push((detail as unknown as WheelDetail).deltaMode);
     });
 
     wheel(element, { deltaY: 3, deltaMode: 1 });
