@@ -83,6 +83,45 @@ $store.gesture.kind           // 'pinch'
 $store.gesture.pointerCount   // 2
 $store.gesture.scale
 $store.gesture.cancel();      // aborts the interaction in progress`;
+
+const WHEEL_CODE = `x-data="{
+  zoom: 1,
+  // The zoom committed by the previous wheel session. The recognizer
+  // accumulates a scale within one session and resets it to 1 after
+  // wheelIdleDelay of silence, so without a carried-over base every turn of
+  // the wheel would start again from 1.
+  base: 1,
+  ox: 0,
+  oy: 0,
+  lastTick: 'idle',
+  handleWheel(d) {
+    // d.x / d.y are clientX / clientY — viewport coordinates, while
+    // transform-origin is measured from the surface's own top-left corner.
+    const rect = this.$refs.surface.getBoundingClientRect()
+    this.ox = d.x - rect.left
+    this.oy = d.y - rect.top
+    this.lastTick = d.ctrlKey ? 'trackpad pinch' : 'wheel'
+  },
+}"
+
+// Two effects because there is no 'end' event for a wheel: the session ending
+// is an absence of input. While the session runs, scale is the live zoom; the
+// moment it is gone, the zoom you are looking at becomes the next base.
+x-effect="if (\u0024store.gesture.kind === 'wheel') zoom = base * \u0024store.gesture.scale"
+x-effect="if (!\u0024store.gesture.active) base = zoom"
+
+<div x-ref="surface" x-gesture.wheel="handleWheel" class="flex h-40 touch-none select-none items-center justify-center overflow-hidden rounded-md border-2 border-dashed">
+  <div x-bind:style="{ transform: 'scale(' + zoom + ')', transformOrigin: ox + 'px ' + oy + 'px' }" class="flex h-24 w-40 items-center justify-center rounded-md border">
+    <span x-text="'×' + zoom.toFixed(2)"></span>
+  </div>
+</div>
+
+<span x-text="lastTick"></span>
+
+// wheel is opt-in: without the .wheel modifier no wheel listener is attached
+// at all, so the browser keeps its own scroll and nothing here would move.
+// The recognizer owns the math — d.scale is exp(-ΣdeltaY × wheelScaleFactor)
+// accumulated over the session — and this demo only has to apply it.`;
 ---
 
 <DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
@@ -203,6 +242,71 @@ $store.gesture.cancel();      // aborts the interaction in progress`;
 				<span x-text="$store.gesture.kind"></span>, fingers
 				<span x-text="$store.gesture.pointerCount"></span>, scale
 				<span x-text="$store.gesture.scale.toFixed(2)"></span>.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="The wheel zooms at the cursor, and only because you asked for it"
+		note="`pinch` needs two fingers, so on a laptop it never fires. `.wheel` is the opt-in that attaches a wheel listener; the package accumulates the scale and you apply it. Without `preventDefault: true` the page scrolls under it as well — that is the one thing the browser keeps."
+		code={WHEEL_CODE}
+	>
+		<div
+			x-data="{
+				zoom: 1,
+				base: 1,
+				ox: 0,
+				oy: 0,
+				lastTick: 'idle',
+				handleWheel(d) {
+					const rect = this.$refs.surface.getBoundingClientRect()
+					this.ox = d.x - rect.left
+					this.oy = d.y - rect.top
+					this.lastTick = d.ctrlKey ? 'trackpad pinch' : 'wheel'
+				},
+			}"
+			x-effect="if ($store.gesture.kind === 'wheel') zoom = base * $store.gesture.scale"
+			x-effect="if (!$store.gesture.active) base = zoom"
+			class="rounded-lg border bg-[var(--ios-bg-secondary)] p-6"
+		>
+			<p class="text-sm font-medium mb-4">
+				Third surface: put the cursor over the box and turn the wheel. The
+				point under the cursor is the point that stays put.
+			</p>
+
+			<div
+				x-ref="surface"
+				x-gesture.wheel="handleWheel"
+				class="flex h-40 touch-none select-none items-center justify-center overflow-hidden rounded-md border-2 border-dashed"
+			>
+				<div
+					x-bind:style="{ transform: 'scale(' + zoom + ')', transformOrigin: ox + 'px ' + oy + 'px' }"
+					class="flex h-24 w-40 items-center justify-center rounded-md border bg-[var(--ios-fill-quaternary)] text-xs text-[var(--ios-label-secondary)]"
+				>
+					<span x-text="'×' + zoom.toFixed(2)"></span>
+				</div>
+			</div>
+
+			<div class="mt-3 flex flex-wrap items-center gap-2">
+				<span class="text-sm">Last tick:</span>
+				<Badge
+					variant="outline"
+					x-text="lastTick"
+				></Badge>
+				<span class="text-xs text-[var(--ios-label-secondary)]">
+					zoom <span x-text="zoom.toFixed(2)"></span>, anchored at
+					<span x-text="ox.toFixed(0)"></span>,<span x-text="oy.toFixed(0)"></span>
+				</span>
+			</div>
+
+			<p class="mt-3 text-xs text-[var(--ios-label-secondary)]">
+				<code>wheel</code> is opt-in: a plain wheel over a surface without the
+				<code>.wheel</code> modifier reaches the browser and nothing else, so
+				the package adds no listener an existing consumer did not ask for. The
+				scale comes back to <code>1</code> after a session goes idle, which is
+				why the zoom you can see is committed into a base rather than read
+				straight off the store. A trackpad pinch arrives on the same path with
+				<code>ctrlKey</code> set.
 			</p>
 		</div>
 	</DemoExample>
