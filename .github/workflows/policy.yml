@@ -35,11 +35,18 @@ jobs:
           # Eleven, not twelve: `breaking-change` is a label, not a branch segment, and the reference
           # set is the same eleven the previous hand-rolled regex accepted.
           branch-types: feat,fix,chore,docs,style,refactor,perf,test,build,ci,revert
-          # Applied here as well as below. The reference file exempts dependabot from the PR gate but
-          # not from the branch gate, which is unreachable: dependabot's head refs are
-          # `dependabot/pnpm/<pkg>-<version>` and carry no type segment, so every one of its pull
-          # requests would fail the name check regardless of what the PR gate does.
-          skip-actors: 'dependabot[bot]'
+          # `dependabot[bot]` is exempt here as well as below. The reference file exempts dependabot
+          # from the PR gate but not from the branch gate, which is unreachable: dependabot's head
+          # refs are `dependabot/pnpm/<pkg>-<version>` and carry no type segment, so every one of its
+          # pull requests would fail the name check regardless of what the PR gate does.
+          #
+          # `AiluraKitty` is the account `RELEASE_PLEASE_TOKEN` belongs to, and therefore the author
+          # of every pull request release-please opens. Those pull requests cannot pass this gate by
+          # construction: their head ref is `release-please--branches--master`, which has no type
+          # segment, and their body is a generated changelog with no linked issue. The exemption is
+          # safe here because that account is a machine identity — it is not used to open pull
+          # requests by hand, so nothing a person wrote is exempted by it.
+          skip-actors: 'dependabot[bot], AiluraKitty'
 
   pull-request-policy:
     name: Pull request policy
@@ -57,7 +64,16 @@ jobs:
           title-min: 15
           title-max: 72
           approved-label: status:approved
-          skip-actors: 'dependabot[bot]'
+          # `AiluraKitty` opens release-please's pull requests. They satisfy none of the five checks
+          # here and cannot be made to: no issue is linked, the only label release-please applies is
+          # its own `autorelease: pending`, and the body is a generated changelog rather than the
+          # template for any type. The action reports an exempt pull request as skipped rather than
+          # passed, which is the honest outcome.
+          #
+          # The exemption covers the whole action, not one check — the action has no per-check or
+          # per-label escape hatch. Narrowing it to individual checks is not possible with this
+          # action, so the trade is accepted: nothing authored by a person runs through this account.
+          skip-actors: 'dependabot[bot], AiluraKitty'
 
   triage:
     name: Issue triage
