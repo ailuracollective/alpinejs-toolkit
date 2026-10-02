@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-permissions",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Framework-agnostic browser permission registry with adapter contract on @ailura/alpinejs-core.",
   "keywords": [
     "adapter",

@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-selection",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Alpine.js headless selection primitives — single/multiple/range on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",

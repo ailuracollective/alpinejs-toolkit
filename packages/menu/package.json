@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-menu",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Alpine.js headless accessible menu store — orientation, keyboard navigation, exclusive mode and ARIA helpers on @ailura/alpinejs-core.",
   "keywords": [
     "accessibility",

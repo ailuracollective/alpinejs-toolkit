@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-theme",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Light, dark, and system theme controller for Alpine.js — MachineController-backed, SSR-safe, with pluggable persistence and cross-tab sync.",
   "keywords": [
     "alpine",

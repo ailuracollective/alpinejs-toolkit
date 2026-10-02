@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-carousel",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Alpine.js headless carousel store — Embla Carousel powered, autoplay, loop, and ARIA helpers on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",

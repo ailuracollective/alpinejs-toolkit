@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-env",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Alpine.js environment magics for network, visibility, battery, and platform on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",
