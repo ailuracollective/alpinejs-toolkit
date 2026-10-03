@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.1](https://github.com/ailuracollective/alpinejs-toolkit/compare/alpinejs-geo@v0.1.0...alpinejs-geo@v0.1.1) (2026-10-03)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * devDependencies
+    * @ailura/alpinejs-permissions bumped to 0.2.0
+
 ## 0.1.0 (2026-10-02)
 
 

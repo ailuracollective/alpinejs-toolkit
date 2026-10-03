@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-geo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Alpine.js geolocation store with watchPosition and SSR-safe guards on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",
