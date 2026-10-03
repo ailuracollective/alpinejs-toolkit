@@ -17,7 +17,7 @@
   "packages/timer": "0.1.0",
   "packages/toast": "0.1.0",
   "packages/transfer": "0.1.0",
-  "packages/permissions": "0.1.0",
+  "packages/permissions": "0.2.0",
   "packages/geo": "0.1.0",
   "packages/lang": "0.1.0",
   "packages/accordion": "0.1.0",
