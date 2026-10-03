@@ -66,6 +66,93 @@ const REGISTRY_CODE = `x-data={JSON.stringify({ capabilityLinks })}
 // the store, but notify, geo and attention implement no subscribe(), so the
 // disposer it hands back is an inert () => {} that has observed nothing.
 // watch() is for adapters YOU write, and then the registry updates by itself.`;
+
+// can(), when(), all() and any() read the controller, not the reactive
+// registry — same as get(). That is why every example below calls them from an
+// event handler: a binding that called can() would render once and then lie.
+
+// can() replaces a comparison that would otherwise be written out at every
+// call site. It is NOT canRequest: an unasked permission is can() === false and
+// canRequest === true, which is the pair that keeps an affordance offered while
+// the feature behind it stays hidden.
+const CAN_CODE = `x-data="{
+  result: 'nothing attempted yet',
+  share() {
+    this.result = $permissions.can('geolocation')
+      ? 'sharing your location'
+      : 'not sharing — ' + ($permissions.registry.geolocation?.availability ?? 'geolocation is not registered');
+  },
+}"
+
+<DemoButton @click="share()">Share my location</DemoButton>
+<p x-text="result"></p>`;
+
+// when() dispatches on the state name, so all four PermissionState members are
+// handlers and there is no mapping table to learn. Only the matching one runs.
+const WHEN_CODE = `x-data="{
+  advice: 'press the button',
+  report(text) { this.advice = text },
+  async ask() {
+    await $permissions.query('notifications');
+    this.advice = 'asked the browser — press when()';
+  },
+  advise() {
+    this.advice = '';
+    // A name that is not registered has no state to dispatch on, so NOTHING
+    // runs and advice stays empty. That is the honest answer: reporting
+    // 'unknown' would describe a permission that does not exist.
+    $permissions.when('notifications', {
+      granted: () => this.report('granted — nothing left to ask for'),
+      prompt: () => this.report('prompt — asking will show a dialog'),
+      denied: () => this.report('denied — the browser will not ask again'),
+      unknown: () => this.report('unknown — nobody has asked the browser yet'),
+    });
+  },
+}"
+
+<DemoButton @click="ask()">query()</DemoButton>
+<DemoButton @click="advise()">when()</DemoButton>
+<p x-text="advice"></p>`;
+
+// all() and any() ride on the same granted comparison can() uses. Unknown names
+// count as not granted, so a typo cannot make a gate pass.
+const AGGREGATE_CODE = `x-data="{
+  names: ['notifications', 'geolocation', 'screen-wake-lock'],
+  summary: 'press the button',
+  report() {
+    this.summary =
+      'all() ' + $permissions.all(this.names) +
+      ' — any() ' + $permissions.any(this.names) +
+      ' — a name that is not registered counts as not granted';
+  },
+}"
+
+<DemoButton @click="report()">all() / any()</DemoButton>
+<p x-text="summary"></p>`;
+
+// unregister() announces itself, so the key leaves the reactive record straight
+// away. register() does not announce itself — a documented limitation — so the
+// example drives one event on purpose to make the asymmetry visible instead of
+// hiding it.
+const UNREGISTER_CODE = `x-data="{
+  adapter: {
+    name: 'demo',
+    isSupported: () => true,
+    getAvailability: () => 'available',
+    query: async () => 'prompt',
+    request: async () => ({ permission: 'granted' }),
+  },
+  async add() {
+    $store.permissions.register(this.adapter);
+    // register() projects nothing on its own, so query() is the event that
+    // makes 'demo' visible in the registry below.
+    await $store.permissions.query('notifications');
+  },
+}"
+
+<DemoButton @click="add()">register('demo')</DemoButton>
+<DemoButton @click="$store.permissions.unregister('demo')">unregister('demo')</DemoButton>
+<p>'demo' is in the registry: <strong x-text="$store.permissions.registry.demo ? 'yes' : 'no'"></strong></p>`;
 ---
 
 <DemoSection id={plugin.id} title={plugin.title} api={plugin.api} description={plugin.description}>
@@ -169,6 +256,135 @@ const REGISTRY_CODE = `x-data={JSON.stringify({ capabilityLinks })}
 				<code>() =&gt; {}</code> that has observed nothing. It is for adapters you write
 				yourself; binding to <code>$permissions.registry[name]</code> is what actually
 				updates this page.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="can() guards an action — it is not a binding"
+		note="Reach for this where a granted-check would otherwise be written out at every call site. It answers 'do I have it', never 'may I ask' — that is canRequest, and the two disagree exactly when a permission is requestable but not yet granted."
+		code={CAN_CODE}
+	>
+		{/*
+			can() reads the controller's entries map, which is not the reactive
+			record. A binding that called it — x-show="$permissions.can(…)" —
+			would evaluate once at boot and never again, because nothing writes to
+			the record when can() is called. That is why every example on this page
+			calls it from a handler: a handler runs when you want it to.
+		*/}
+		<div
+			class="space-y-2 text-sm"
+			data-testid="permissions-can"
+			x-data="{
+				result: 'nothing attempted yet',
+				share() {
+					this.result = $permissions.can('geolocation')
+						? 'sharing your location'
+						: 'not sharing — ' + ($permissions.registry.geolocation?.availability ?? 'geolocation is not registered');
+				},
+			}"
+		>
+			<DemoButton @click="share()">Share my location</DemoButton>
+			<p x-text="result"></p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="when() runs the one branch for the state you are in"
+		note="Reach for this instead of an if/else chain that switches on snapshot.permission. The keys are the PermissionState names themselves, so there is no mapping to learn — and a name that is not registered runs nothing."
+		code={WHEN_CODE}
+	>
+		<div
+			class="space-y-2 text-sm"
+			data-testid="permissions-when"
+			x-data="{
+				advice: 'press the button',
+				report(text) { this.advice = text },
+				async ask() {
+					await $permissions.query('notifications');
+					this.advice = 'asked the browser — press when()';
+				},
+				advise() {
+					this.advice = '';
+					// A name that is not registered has no state to dispatch on,
+					// so nothing runs and advice stays empty. Reporting 'unknown'
+					// would describe a permission that does not exist.
+					$permissions.when('notifications', {
+						granted: () => this.report('granted — nothing left to ask for'),
+						prompt: () => this.report('prompt — asking will show a dialog'),
+						denied: () => this.report('denied — the browser will not ask again'),
+						unknown: () => this.report('unknown — nobody has asked the browser yet'),
+					});
+				},
+			}"
+		>
+			<DemoButton @click="ask()">query()</DemoButton>
+			<DemoButton @click="advise()">when()</DemoButton>
+			<p x-text="advice"></p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="all() and any() answer for a set of permissions"
+		note="Reach for this for a readiness check — 'can I start this flow' is all(), 'may I offer this' is any(). A name that is not registered counts as not granted, so a typo can never make a gate pass."
+		code={AGGREGATE_CODE}
+	>
+		<div
+			class="space-y-2 text-sm"
+			data-testid="permissions-aggregate"
+			x-data="{
+				names: ['notifications', 'geolocation', 'screen-wake-lock'],
+				summary: 'press the button',
+				report() {
+					this.summary =
+						'all() ' + $permissions.all(this.names) +
+						' — any() ' + $permissions.any(this.names) +
+						' — a name that is not registered counts as not granted';
+				},
+			}"
+		>
+			<DemoButton @click="report()">all() / any()</DemoButton>
+			<p x-text="summary"></p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="unregister() takes the key out of the reactive registry"
+		note="Reach for this when an adapter's lifetime is shorter than the page's. Removing it announces itself, so the binding below clears without waiting for an unrelated change — the fix that shipped with this surface."
+		code={UNREGISTER_CODE}
+	>
+		{/*
+			The asymmetry is shown on purpose rather than smoothed over:
+			register() announces nothing, so this example drives one query() to
+			make 'demo' appear, while unregister() removes it on its own. Both
+			halves of the lifecycle, behaving differently, visible together.
+		*/}
+		<div
+			class="space-y-2 text-sm"
+			data-testid="permissions-unregister"
+			x-data="{
+				adapter: {
+					name: 'demo',
+					isSupported: () => true,
+					getAvailability: () => 'available',
+					query: async () => 'prompt',
+					request: async () => ({ permission: 'granted' }),
+				},
+				async add() {
+					$store.permissions.register(this.adapter);
+					// register() projects nothing on its own, so query() is the
+					// event that makes 'demo' visible in the registry below.
+					await $store.permissions.query('notifications');
+				},
+			}"
+		>
+			<div class="flex flex-wrap gap-2">
+				<DemoButton @click="add()">register('demo')</DemoButton>
+				<DemoButton @click="$store.permissions.unregister('demo')">unregister('demo')</DemoButton>
+			</div>
+			<p>
+				'demo' is in the registry:
+				<strong x-text="$store.permissions.registry.demo ? 'yes' : 'no'"></strong>
 			</p>
 		</div>
 	</DemoExample>
