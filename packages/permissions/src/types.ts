@@ -21,6 +21,13 @@ export type NormalizedPermissionState = PermissionState;
 
 export type PermissionName = string;
 
+/**
+ * The handler map `when()` dispatches on: one optional callback per
+ * `PermissionState`. Only the callback matching the current state runs, so an
+ * omitted key simply means "do nothing in this state".
+ */
+export type PermissionWhenHandlers = Partial<Record<PermissionState, () => void>>;
+
 export type PermissionRegistry = Readonly<Record<string, PermissionSnapshot>>;
 
 export interface PermissionOptions {
@@ -46,10 +53,21 @@ export interface PermissionsMagic {
   refresh(name: string): Promise<PermissionSnapshot>;
   watch(name: string): Promise<() => void>;
   /**
-   * Host-owned teardown: unsubscribes every permission subscription the store
-   * opened and drops the registered adapters. Nothing invokes it
-   * automatically — the host that registered the plugin calls it.
+   * Is this permission granted right now — not "can I ask", which is
+   * `canRequest`. A non-reactive read, exactly like {@link get}.
    */
+  can(name: string): boolean;
+  /**
+   * Runs the one handler matching the permission's current state. Not
+   * reactive. A permission that is not registered has no state to dispatch on,
+   * so it runs nothing.
+   */
+  when(name: string, handlers: PermissionWhenHandlers): void;
+  /** Every named permission granted; `all([])` is `true`. */
+  all(names: readonly string[]): boolean;
+  /** At least one named permission granted; `any([])` is `false`. */
+  any(names: readonly string[]): boolean;
+  unregister(name: string): boolean;
   destroy(): void;
 }
 
