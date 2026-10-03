@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/ailuracollective/alpinejs-toolkit/compare/alpinejs-permissions@v0.1.0...alpinejs-permissions@v0.2.0) (2026-10-03)
+
+
+### Features
+
+* **permissions:** correct request lifecycle, add can/when/all/any ([#18](https://github.com/ailuracollective/alpinejs-toolkit/issues/18)) ([48a5c02](https://github.com/ailuracollective/alpinejs-toolkit/commit/48a5c025978bbf2a859ba7df0c745c243f921eeb))
+
 ## 0.1.0 (2026-10-02)
 
 
