@@ -4,7 +4,7 @@
   "packages/state-machine": "0.1.0",
   "packages/env": "0.1.0",
   "packages/media": "0.1.0",
-  "packages/notify": "0.1.1",
+  "packages/notify": "0.2.0",
   "packages/selection": "0.1.0",
   "packages/collection": "0.1.0",
   "packages/child": "0.1.0",
