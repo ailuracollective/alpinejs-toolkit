@@ -143,7 +143,8 @@ Owned by the `branch-validation` job in `policy.yml`
 - The **first segment must equal the PR author's GitHub login, lowercased**. For a fork PR the
   author and the head-ref owner are different people, so name the branch after the person who
   opened the PR, not after whoever owns the upstream repository.
-- **Eleven** types. `breaking-change` is a label, not a branch segment.
+- **Eleven** types. `breaking-change` is the twelfth Conventional Commit type but not a branch
+  segment: it describes the commit, not the shape of the work.
 - The description may use `a-z`, `0-9`, dots, hyphens and underscores.
 - `dependabot[bot]` is exempt from both the branch gate and the PR gate. Its head refs are
   `dependabot/pnpm/<pkg>-<version>`, which carry no type segment.
@@ -159,16 +160,16 @@ All five are owned by the single `pull-request-policy` job in `policy.yml`
 (`ailuracollective/actions/pull-request@v1`). Each has an `enable-*` input defaulting to `true`,
 and `policy.yml` sets none of them, so all five are active.
 
-| Gate             | Input                       | Requirement                                                                                                                                                                                                                                                                   |
-| ---------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Linked issue     | `enable-linked-issue`       | Body carries `Closes #N`, `Fixes #N` or `Resolves #N` pointing at an issue that carries `status:approved` (`approved-label`). **`Refs #N` does not close an issue and fails this gate.** An agent must not apply `status:approved` to its own issue; a maintainer triages it. |
-| Type label       | `enable-type-label`         | **Exactly one** of `feat`, `fix`, `docs`, `refactor`, `chore`, `style`, `perf`, `test`, `build`, `ci`, `revert`, `breaking-change`, bare and with **no `type:` prefix**. Zero or more than one fails.                                                                         |
-| PR title length  | `enable-title-length`       | 15-72 characters (`title-min` / `title-max`).                                                                                                                                                                                                                                 |
-| PR title shape   | `enable-title-conventional` | A Conventional Commit subject: `<type>(\<scope\>)!: <description>`. The accepted types are the 12 labels above, so the breaking type is `breaking-change`, not `breaking`.                                                                                                    |
-| PR body sections | `enable-body-structure`     | Every `## ` heading declared by the type's template must appear in the body. Templates resolve from `.github/PULL_REQUEST_TEMPLATE/<type>.md`, falling back to `.github/PULL_REQUEST_TEMPLATE.md` for a type that has none.                                                   |
+| Gate             | Input                       | Requirement                                                                                                                                                                                                                                                             |
+| ---------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Linked issue     | `enable-linked-issue`       | Body carries `Closes #N`, `Fixes #N` or `Resolves #N` pointing at an issue that carries `status/ready` (`approved-label`). **`Refs #N` does not close an issue and fails this gate.** An agent must not apply `status/ready` to its own issue; a maintainer triages it. |
+| Type label       | `enable-type-label`         | **Exactly one** of `type/feature`, `type/bug`, `type/documentation`, `type/improvement`, `type/task`. Zero or more than one fails.                                                                                                                                      |
+| PR title length  | `enable-title-length`       | 15-72 characters (`title-min` / `title-max`).                                                                                                                                                                                                                           |
+| PR title shape   | `enable-title-conventional` | A Conventional Commit subject: `<type>(\<scope\>)!: <description>`. The accepted types are the twelve Conventional Commit types, which are **not** the labels: the breaking type is `breaking-change`, not `breaking`.                                                  |
+| PR body sections | `enable-body-structure`     | Every `## ` heading declared by the type's template must appear in the body. Templates resolve from `.github/PULL_REQUEST_TEMPLATE/<type>.md`, falling back to `.github/PULL_REQUEST_TEMPLATE.md` for a type that has none.                                             |
 
 A sixth gate lives in the `triage` job (`ailuracollective/actions/triage@v1`): it stamps
-`status:needs-review` on every newly opened issue. It never removes a label, so a deliberate
+`status/needs-review` on every newly opened issue. It never removes a label, so a deliberate
 maintainer removal sticks. It is the only job in this repository granted `issues: write`.
 
 `policy.yml` re-runs on `opened`, `synchronize`, `reopened`, `edited`, `labeled` and
@@ -176,16 +177,36 @@ maintainer removal sticks. It is the only job in this repository granted `issues
 
 ### Labels must already exist on the remote
 
-`.github/labels.yml` is a reviewed manifest of the label set, not something GitHub reads, and
-applying it is a separate one-time command documented at the bottom of that file. The `type-labels`
-list in `policy.yml` mirrors it: change one, mirror the other.
+`.github/labels.yml` is a reviewed manifest of the label set, not something GitHub reads. The thirty
+labels it declares already exist on the remote, so the manifest records a set rather than a plan to
+create one; the reconciliation recipe at the bottom of that file is how they are re-applied after an
+edit, and how one is pruned. The `type-labels` list in `policy.yml` mirrors the manifest's `type/*`
+family: change one, mirror the other.
+
+A gate that names a label the remote does not have is unsatisfiable rather than merely strict — the
+check can never be passed, because there is no label to apply. That is not hypothetical: the
+repository once enforced a bare twelve-label set that was later deleted, which left the type-label and
+linked-issue gates impossible to satisfy until this realignment.
+
+### Two vocabularies: labels are not title types
+
+Labels and PR titles use deliberately different sets, and the gates read them separately.
+
+| Aspect | Vocabulary                                                                        | Read by                                                   |
+| ------ | --------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Label  | `type/feature`, `type/bug`, `type/documentation`, `type/improvement`, `type/task` | the type-label gate                                       |
+| Title  | the twelve Conventional Commit types, `breaking-change` included                  | the title-shape gate, release-please, template resolution |
+
+The label is coarser than the title: a `ci` pull request carries the label `type/task` while its title
+reads `ci(scope): ...`. The corollary is that **no label carries the title's type**, so no `type/*`
+label marks a breaking change.
 
 ### Commits and the PR title are the same contract
 
 Because release-please parses the **squash commit message**, the PR title becomes the release
 note. A conventional commit without a `!` and without a `BREAKING CHANGE:` footer releases as a
-minor bump even when the PR carries the `breaking-change` label, because the label is not read
-by the release tooling. See [CONTRIBUTING.md](CONTRIBUTING.md) for the release flow.
+minor bump, because nothing reads a label to decide this — the label set has no breaking member to
+read. See [CONTRIBUTING.md](CONTRIBUTING.md) for the release flow.
 
 ### Removed: `.github/workflows/pr-validation.yml`
 

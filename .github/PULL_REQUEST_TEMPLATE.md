@@ -11,7 +11,7 @@ sentences and avoid repeating the title.
 
 ## Linked issue (required)
 
-<!-- The linked issue MUST carry the `status:approved` label. Apply exactly one of these
+<!-- The linked issue MUST carry the `status/ready` label. Apply exactly one of these
 closing keywords on its own line. `Refs #N` does NOT close the issue and does not satisfy
 this requirement. -->
 
@@ -19,8 +19,8 @@ Closes #
 
 ## Type (required)
 
-<!-- Check exactly ONE. Labels are bare Conventional Commit types with no `type:` prefix:
-feat, fix, docs, refactor, chore, style, perf, test, build, ci, revert, breaking-change -->
+<!-- Check exactly ONE. This is the Conventional Commit type for your TITLE; the LABEL
+is separate and coarser: `type/task`. Apply exactly one `type/*` label. -->
 
 - [ ] `chore` — maintenance, dependencies, housekeeping
 - [ ] `build` — build system, toolchain, packaging
@@ -65,10 +65,11 @@ or the reason an alternative approach was rejected. Write "None" when there is n
 ## Contributor checklist
 
 - [ ] Linked an approved issue with `Closes #N`, `Fixes #N` or `Resolves #N`
-- [ ] The linked issue carries the `status:approved` label
+- [ ] The linked issue carries the `status/ready` label
 - [ ] Branch is named `<github-username>/<type>/<description>`, all lowercase
       (for example `janedoe/chore/update-ci-actions`)
-- [ ] Added exactly one label from the allowed set, with no `type:` prefix
+- [ ] Applied exactly one `type/*` label (`type/feature`, `type/bug`, `type/documentation`,
+      `type/improvement` or `type/task`)
 - [ ] Commit messages follow Conventional Commits
 - [ ] No `Co-Authored-By` trailers
 - [ ] Documentation updated if observable behavior changed

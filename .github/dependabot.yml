@@ -35,7 +35,7 @@ updates:
     commit-message:
       prefix: ci
     labels:
-      - ci
+      - type/task
     groups:
       # `checkout` is grouped on its own so that a bump which only moves the checkout stays a
       # one-file pull request instead of being reviewed alongside every other action bump. It is

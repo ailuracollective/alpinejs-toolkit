@@ -1,12 +1,12 @@
 name: Bug report
 description: Report a defect in alpinejs-toolkit — wrong behavior, an error, or a crash.
-labels: ["bug", "status:needs-review"]
+labels: ["type/bug", "status/needs-review"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for filing a bug. This form creates a report with the `bug` and
-        `status:needs-review` labels. A maintainer reviews it and adds `status:approved`
+        Thanks for filing a bug. This form creates a report with the `type/bug` and
+        `status/needs-review` labels. A maintainer reviews it and adds `status/ready`
         once the defect is understood and someone picks it up.
 
         Please keep the report reproducible and free of sensitive data. Logs and

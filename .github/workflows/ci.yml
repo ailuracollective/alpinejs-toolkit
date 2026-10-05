@@ -8,8 +8,8 @@ name: CI
 #   - branch name and its   -> policy.yml, job `branch-validation`
 #     ownership by author     (ailuracollective/actions/branch-validation@v1)
 #   - linked issue and its  -> policy.yml, job `pull-request-policy`
-#     `status:approved`       (enable-linked-issue)
-#   - exactly one type      -> policy.yml, job `pull-request-policy`
+#     `status/ready`          (enable-linked-issue)
+#   - exactly one `type/*` -> policy.yml, job `pull-request-policy`
 #     label on the PR         (enable-type-label)
 #   - PR title length       -> policy.yml, job `pull-request-policy`
 #                               (enable-title-length, title-min / title-max)
