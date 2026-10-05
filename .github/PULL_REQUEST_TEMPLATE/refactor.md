@@ -10,7 +10,7 @@ Short paragraph: what was restructured and why the current shape was a problem.
 
 ## Linked issue (required)
 
-<!-- The linked issue MUST carry the `status:approved` label. Apply exactly one of these
+<!-- The linked issue MUST carry the `status/ready` label. Apply exactly one of these
 closing keywords on its own line. `Refs #N` does NOT close the issue and does not satisfy
 this requirement. -->
 
@@ -18,8 +18,8 @@ Closes #
 
 ## Type (required)
 
-<!-- Check exactly ONE. Labels are bare Conventional Commit types with no `type:` prefix:
-feat, fix, docs, refactor, chore, style, perf, test, build, ci, revert, breaking-change -->
+<!-- Check exactly ONE. This is the Conventional Commit type for your TITLE; the LABEL
+is separate and coarser: `type/improvement`. Apply exactly one `type/*` label. -->
 
 - [ ] `refactor` — internal restructuring, behavior unchanged
 
@@ -79,10 +79,11 @@ mislabeled: say so and move it to feat! / fix! (breaking-change). -->
 ## Contributor checklist
 
 - [ ] Linked an approved issue with `Closes #N`, `Fixes #N` or `Resolves #N`
-- [ ] The linked issue carries the `status:approved` label
+- [ ] The linked issue carries the `status/ready` label
 - [ ] Branch is named `<github-username>/<type>/<description>`, all lowercase
       (for example `janedoe/refactor/extract-shared-logic`)
-- [ ] Added exactly one label from the allowed set, with no `type:` prefix
+- [ ] Applied exactly one `type/*` label (`type/feature`, `type/bug`, `type/documentation`,
+      `type/improvement` or `type/task`)
 - [ ] Commit messages follow Conventional Commits
 - [ ] No `Co-Authored-By` trailers
 - [ ] Confirmed no public API or observable behavior changed

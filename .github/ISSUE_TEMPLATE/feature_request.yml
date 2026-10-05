@@ -1,13 +1,13 @@
 name: Feature request
 description: Propose a capability, improvement, or API addition for alpinejs-toolkit.
-labels: ["enhancement", "status:needs-review"]
+labels: ["type/feature", "status/needs-review"]
 body:
   - type: markdown
     attributes:
       value: |
         Thanks for proposing an improvement. This form creates a request with the
-        `enhancement` and `status:needs-review` labels. A maintainer reviews it and adds
-        `status:approved` before any pull request may link it.
+        `type/feature` and `status/needs-review` labels. A maintainer reviews it and adds
+        `status/ready` before any pull request may link it.
 
         Focus on the problem and the outcome, not on the implementation. A request that
         already specifies a solution tends to be closed faster than one that states the

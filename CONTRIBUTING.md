@@ -66,7 +66,7 @@ Mark a breaking change in the commit subject, not only in a label:
 - `fix!: reset state on destroy`
 - a `BREAKING CHANGE:` footer on the commit
 
-The `breaking-change` label is **not** sufficient on its own. release-please reads commits, not labels: a PR carrying only that label merges, opens a release PR, and bumps the version as a plain minor. Put the `!` or the footer in the commit itself. This is the single most likely mistake in the whole release flow.
+There is no breaking-change label to lean on, and that is deliberate. release-please reads commits, not labels: no label on the PR can bump the version as a major. Put the `!` or the footer in the commit itself. This is the single most likely mistake in the whole release flow.
 
 While a package is below `1.0.0`, a breaking change bumps the minor, not the major (`bump-minor-pre-major`). Do not hand-correct that to a major bump.
 
