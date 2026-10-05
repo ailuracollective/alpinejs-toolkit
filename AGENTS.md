@@ -133,7 +133,7 @@ rejecting, or stops rejecting.
 ### Branch name
 
 Owned by the `branch-validation` job in `policy.yml`
-(`ailuracollective/actions/branch-validation@v1`), which requires the head branch to read
+(`ailuracollective/actions/branch-validation@v2`), which requires the head branch to read
 `<author>/<type>/<description>` **and** to be owned by its author.
 
 ```
@@ -157,7 +157,7 @@ git checkout -b "$OWNER/ci/release-automation" master
 ### The remaining five gates
 
 All five are owned by the single `pull-request-policy` job in `policy.yml`
-(`ailuracollective/actions/pull-request@v1`). Each has an `enable-*` input defaulting to `true`,
+(`ailuracollective/actions/pull-request@v2`). Each has an `enable-*` input defaulting to `true`,
 and `policy.yml` sets none of them, so all five are active.
 
 | Gate             | Input                       | Requirement                                                                                                                                                                                                                                                             |
@@ -168,7 +168,7 @@ and `policy.yml` sets none of them, so all five are active.
 | PR title shape   | `enable-title-conventional` | A Conventional Commit subject: `<type>(\<scope\>)!: <description>`. The accepted types are the twelve Conventional Commit types, which are **not** the labels: the breaking type is `breaking-change`, not `breaking`.                                                  |
 | PR body sections | `enable-body-structure`     | Every `## ` heading declared by the type's template must appear in the body. Templates resolve from `.github/PULL_REQUEST_TEMPLATE/<type>.md`, falling back to `.github/PULL_REQUEST_TEMPLATE.md` for a type that has none.                                             |
 
-A sixth gate lives in the `triage` job (`ailuracollective/actions/triage@v1`): it stamps
+A sixth gate lives in the `triage` job (`ailuracollective/actions/triage@v2`): it stamps
 `status/needs-review` on every newly opened issue. It never removes a label, so a deliberate
 maintainer removal sticks. It is the only job in this repository granted `issues: write`.
 

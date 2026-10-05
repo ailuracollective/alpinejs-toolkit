@@ -52,7 +52,7 @@ jobs:
     permissions: {}
     steps:
       # Reads nothing from the API, so an empty permission set is correct here, not a shortcut.
-      - uses: ailuracollective/actions/branch-validation@v1
+      - uses: ailuracollective/actions/branch-validation@v2
         with:
           # Eleven, not twelve. `breaking-change` is the twelfth Conventional Commit type but it is not
           # a branch segment: it describes the commit, not the shape of the work, and the commit
@@ -75,6 +75,11 @@ jobs:
           # safe here because that account is a machine identity — it is not used to open pull
           # requests by hand, so nothing a person wrote is exempted by it.
           skip-actors: 'dependabot[bot], AiluraKitty'
+          # The status comment is off. `v2` publishes it by default, which needs a token belonging
+          # to the organisation and a job granted `pull-requests: write`; this repository has
+          # neither, so the default would warn on every pull request and post nothing. Declared
+          # rather than inherited, because the job summary carries the same table.
+          enable-status-comment: false
 
   pull-request-policy:
     name: Pull request policy
@@ -85,7 +90,7 @@ jobs:
       pull-requests: read
       contents: read
     steps:
-      - uses: ailuracollective/actions/pull-request@v1
+      - uses: ailuracollective/actions/pull-request@v2
         with:
           # Mirrors `.github/labels.yml`. That file is a manifest and is not read by any workflow, so
           # this list and the manifest are two records of the same set: change one, mirror the other.
@@ -122,6 +127,6 @@ jobs:
     permissions:
       issues: write
     steps:
-      - uses: ailuracollective/actions/triage@v1
+      - uses: ailuracollective/actions/triage@v2
         with:
           auto-label-name: status/needs-review
