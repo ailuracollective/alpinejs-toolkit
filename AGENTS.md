@@ -158,12 +158,7 @@ git checkout -b "$OWNER/ci/release-automation" master
 
 All five are owned by the single `pull-request-policy` job in `policy.yml`
 (`ailuracollective/actions/pull-request@v2`). Each has an `enable-*` input defaulting to `true`,
-and `policy.yml` overrides none of those five, so all five are active. It sets one other `enable-*`
-input on the same job — `enable-status-comment: false` — which is not a gate: it turns off the status
-comment `v2` publishes into the pull request conversation. Publishing needs either a write-scoped
-token belonging to the organisation, or `pull-requests: write` on the job plus
-`comment-author: github-actions[bot]`; this repository has neither, so the job summary carries the
-same table instead.
+and `policy.yml` overrides none of those five, so all five are active.
 
 | Gate             | Input                       | Requirement                                                                                                                                                                                                                                                             |
 | ---------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -179,6 +174,27 @@ maintainer removal sticks. It is the only job in this repository granted `issues
 
 `policy.yml` re-runs on `opened`, `synchronize`, `reopened`, `edited`, `labeled` and
 `unlabeled`, so adding or removing a label re-evaluates the gates that read labels.
+
+### The status comment
+
+Both `pull_request` jobs keep one comment per action on the pull request, carrying that action's
+current table and updated in place rather than posted again on every push. This is what `v2` adds
+and `v1` had no equivalent of. `triage` has no such input: it runs on `issues`, where there is no
+pull request conversation to comment in.
+
+Turning it on costs nothing but `comment-token: ${{ secrets.AILURA_KITTY_TOKEN }}`. The write
+happens with that personal access token, so **no job here widens its permissions for the comment** —
+`branch-validation` still grants `permissions: {}` and `pull-request-policy` still grants two reads,
+because the checks only ever read, and no write-scoped token is handed to a check script.
+`comment-author` is left at its default of `AiluraKitty` because that is who the token belongs to:
+the report reads the token's own identity with `gh api user` and refuses to publish under any other.
+Rotating that token to a different account therefore means moving `comment-author` with it, or the
+comment silently stops appearing.
+
+A fork pull request receives no repository secret, so its comment is skipped with a warning while
+its verdicts stand. That is why the workflow still carries no fork skip — adding one would silence
+the warning by also stopping the gating of fork pull requests, which is a much larger change than a
+warning is worth.
 
 ### Labels must already exist on the remote
 

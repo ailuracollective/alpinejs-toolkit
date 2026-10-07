@@ -5,6 +5,14 @@ name: Contribution policy
 # That is also why this workflow has no fork skip, unlike the hub's own self-validation, which must
 # run `uses: ./` and therefore does need one.
 #
+# The status comment below is the one thing here that does write, and a fork pull request cannot get
+# it: GitHub does not pass repository secrets to a fork, so `AILURA_KITTY_TOKEN` arrives empty, the
+# report falls back to the read-only `github-actions[bot]` token, and the run warns that it will not
+# publish under the wrong identity. The gates are unaffected — the report swallows that failure and
+# the verdict stands — so a fork pull request is still gated and simply has no comment. Adding a
+# fork skip would silence the warning, and would also stop gating fork pull requests, which is a far
+# larger change than a warning is worth.
+#
 # The hub's own `policy.yml` narrows the type sets to seven bare Conventional Commit types
 # (`feat,fix,docs,chore,ci,test,refactor`). This repository does not use those: `.github/labels.yml`
 # declares a `type/*` family, and `type-labels` below lists all five members of it. The values below
@@ -75,14 +83,19 @@ jobs:
           # safe here because that account is a machine identity — it is not used to open pull
           # requests by hand, so nothing a person wrote is exempted by it.
           skip-actors: 'dependabot[bot], AiluraKitty'
-          # The status comment is off, and `v2` already defaults it off for this action: branch
+          # The status comment is on, which `v2` does not do for this action by default: branch
           # validation reads nothing from the API and exists so a consumer can validate a branch
-          # name while granting no permissions at all. Declared rather than inherited so each gate
-          # states its own outcome; the job summary carries the same table either way.
+          # name while granting no permissions at all, so the comment is opt-in here and declared.
           #
-          # The input that genuinely overrides a default is the PR policy's, one job below: there
-          # `v2` defaults it to `true`, which is what makes it worth declaring there.
-          enable-status-comment: false
+          # `comment-token` is a write-scoped personal access token belonging to `AiluraKitty`, and
+          # it is the ONLY token here that can write: the job still grants `permissions: {}`, and
+          # the check itself never sees this token. `comment-author` is left at its default of
+          # `AiluraKitty` because that is who the token belongs to — the report reads the identity
+          # with `gh api user` and refuses to publish under any other, so if the token is ever
+          # replaced by one belonging to another account this comment silently stops appearing and
+          # `comment-author` has to move with it.
+          enable-status-comment: true
+          comment-token: ${{ secrets.AILURA_KITTY_TOKEN }}
 
   pull-request-policy:
     name: Pull request policy
@@ -121,16 +134,21 @@ jobs:
           # per-label escape hatch. Narrowing it to individual checks is not possible with this
           # action, so the trade is accepted: nothing authored by a person runs through this account.
           skip-actors: 'dependabot[bot], AiluraKitty'
-          # The status comment is off. `v2` publishes it by default here — unlike on the branch
-          # validation job above, where it is off by default. Publishing needs either a
-          # write-scoped token belonging to the organisation, or `pull-requests: write` on this job
-          # together with `comment-author: github-actions[bot]`. This repository has neither: the
-          # only two secrets are `NPM_TOKEN` and `RELEASE_PLEASE_TOKEN`, and this job grants two
-          # reads because the five checks only read. Left on, every run would warn that the token
-          # belongs to `github-actions[bot]` rather than to the expected `comment-author`, and post
-          # nothing — a warning on every pull request, reading as a broken configuration. Declared
-          # rather than inherited, because the job summary already carries the same table.
-          enable-status-comment: false
+          # The status comment is on, and declared even though `v2` defaults it on for this action,
+          # because the default would publish as `github-actions[bot]` — the account the workflow's
+          # own token belongs to — which the report refuses to do. Declaring it keeps the intent
+          # visible next to the inputs that make it work.
+          #
+          # `comment-token` is what makes it work, and the reason this job's permissions do not
+          # widen: the write happens with a personal access token, not with the job's. The five
+          # checks keep reading with `github-token` and the two reads they always had; nothing
+          # write-scoped is handed to a check script.
+          enable-status-comment: true
+          comment-token: ${{ secrets.AILURA_KITTY_TOKEN }}
+          # `comment-author` is left at its default of `AiluraKitty` because that is who
+          # `AILURA_KITTY_TOKEN` belongs to. The report reads the token's own identity and refuses
+          # to publish under any other, so this comment and `comment-author` have to move together
+          # if the token is ever rotated to a different account.
 
   triage:
     name: Issue triage
