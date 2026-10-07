@@ -16,7 +16,7 @@
 import { clearAllSingletons } from "@ailura/alpinejs-core/singletons";
 import { afterEach, describe, expect, test } from "vite-plus/test";
 
-import { createThemeFaviconController, ThemeFaviconController } from "../src/favicon";
+import { createThemeFaviconController, ThemeFaviconController } from "../src/controller";
 
 const LIGHT_ICON = "/favicon-light.svg";
 const DARK_ICON = "/favicon-dark.svg";

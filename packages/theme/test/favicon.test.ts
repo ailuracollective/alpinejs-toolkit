@@ -14,12 +14,13 @@ import { resolve } from "node:path";
 import { clearAllSingletons } from "@ailura/alpinejs-core/singletons";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vite-plus/test";
 
-import { createThemeController, ThemeController } from "../src/controller";
 import {
+  createThemeController,
   createThemeFaviconController,
   THEME_FAVICON_ATTRIBUTE,
+  ThemeController,
   ThemeFaviconController,
-} from "../src/favicon";
+} from "../src/controller";
 import { createMemoryThemeStorage } from "../src/storage/memory-storage";
 import type { ThemePreference, ThemeStorage } from "../src/types";
 
@@ -525,17 +526,21 @@ describe("DOM ownership", () => {
 });
 
 describe("Alpine is optional", () => {
-  test("the favicon module does not import alpinejs", () => {
+  test("the controller layer does not import alpinejs", () => {
     // Not `new URL(..., import.meta.url)`: Vite rewrites that pattern as an
     // asset URL before the test sees it.
-    const source = readFileSync(resolve(import.meta.dirname, "..", "src", "favicon.ts"), "utf8");
+    const source = readFileSync(resolve(import.meta.dirname, "..", "src", "controller.ts"), "utf8");
 
     // A favicon lives in <head>. Nothing about it should make the framework a
-    // runtime requirement of this module.
+    // runtime requirement of the controller that owns it — and the theme
+    // controller beside it sets the precedent by not importing Alpine either.
     expect(source).not.toMatch(/from "alpinejs"/);
     expect(source).not.toMatch(/from 'alpinejs'/);
-    // And it reads theme state through the controller, not through a store.
-    expect(source).toContain('from "./controller"');
+    // It reads theme state through ThemeController, never through a store:
+    // the store projection is plugin.ts's job, and it is not in this file.
+    expect(source).not.toContain("./plugin");
+    // The document goes through the env guard, like every other DOM access here.
+    expect(source).toContain('from "@ailura/alpinejs-core/env"');
   });
 
   test("no Alpine is on the page, and the favicon still works", () => {

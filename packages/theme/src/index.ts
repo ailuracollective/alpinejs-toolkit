@@ -1,10 +1,11 @@
-export { createThemeController, ThemeController } from "./controller";
 export {
+  createThemeController,
   createThemeFaviconController,
+  ThemeController,
   ThemeFaviconController,
   THEME_FAVICON_ATTRIBUTE,
-} from "./favicon";
-export type { CreateThemeFaviconOptions, ThemeFaviconStrategy } from "./favicon";
+} from "./controller";
+export type { CreateThemeFaviconOptions, ThemeFaviconStrategy } from "./controller";
 export { createLocalStorageThemeStorage } from "./storage/local-storage";
 export { createMemoryThemeStorage } from "./storage/memory-storage";
 export { createSystemObserver, readSystemTheme } from "./system-observer";
