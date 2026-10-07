@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-virtual",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Alpine.js headless virtual list — fixed/variable sizes, overscan, window/element scroll and ARIA helpers on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",
