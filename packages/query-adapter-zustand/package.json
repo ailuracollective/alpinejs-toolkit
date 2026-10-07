@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-query-adapter-zustand",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Zustand state adapter for @ailura/alpinejs-query — zustand/vanilla backed QueryStateAdapter.",
   "keywords": [
     "adapter",

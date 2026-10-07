@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-overlay",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Alpine.js headless overlay store — portal root via @ailura/alpinejs-ui, z-index allocation and stack management on @ailura/alpinejs-core.",
   "keywords": [
     "accessibility",
