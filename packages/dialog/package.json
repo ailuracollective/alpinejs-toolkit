@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-dialog",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Alpine.js headless accessible dialog store — registry-keyed open/close, per-instance close rules, x-dialog binding and ARIA helpers on @ailura/alpinejs-core. No focus management, no scroll lock.",
   "keywords": [
     "accessibility",
