@@ -158,7 +158,12 @@ git checkout -b "$OWNER/ci/release-automation" master
 
 All five are owned by the single `pull-request-policy` job in `policy.yml`
 (`ailuracollective/actions/pull-request@v2`). Each has an `enable-*` input defaulting to `true`,
-and `policy.yml` sets none of them, so all five are active.
+and `policy.yml` overrides none of those five, so all five are active. It sets one other `enable-*`
+input on the same job — `enable-status-comment: false` — which is not a gate: it turns off the status
+comment `v2` publishes into the pull request conversation. Publishing needs either a write-scoped
+token belonging to the organisation, or `pull-requests: write` on the job plus
+`comment-author: github-actions[bot]`; this repository has neither, so the job summary carries the
+same table instead.
 
 | Gate             | Input                       | Requirement                                                                                                                                                                                                                                                             |
 | ---------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
