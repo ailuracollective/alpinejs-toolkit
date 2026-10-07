@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/ailuracollective/alpinejs-toolkit/compare/alpinejs-theme@v0.1.0...alpinejs-theme@v0.2.0) (2026-10-07)
+
+
+### Features
+
+* **theme:** add theme-aware favicon integration ([#33](https://github.com/ailuracollective/alpinejs-toolkit/issues/33)) ([32be243](https://github.com/ailuracollective/alpinejs-toolkit/commit/32be243485c926caddfd65ac9e1941937c84e7f9))
+
 ## 0.1.0 (2026-10-02)
 
 
