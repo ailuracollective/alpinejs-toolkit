@@ -1,17 +1,19 @@
 // @vitest-environment node
 /**
- * SSR safety for the favicon integration.
+ * SSR safety for `controller.ts`, in both of its controllers.
  *
- * This file pins the **node** environment because `packages/theme/vite.config.ts`
- * defaults every test in the package to `happy-dom`; without the pragma there
- * would be a `document` here and the file would prove nothing. No `window`, no
- * `document`, no DOM at all — the environment the project's SSR invariant talks
- * about, and the one the favicon code claims to survive.
+ * This file stays separate from `controller.test.ts` for one reason: it pins
+ * the **node** environment, and a test file can only pin one. The package config
+ * defaults every test to `happy-dom`, where a `document` exists and an SSR
+ * assertion would pass without proving anything.
  *
- * What is asserted is stronger than "it imports": both factories are *called*.
- * A bare import only proves the module body is clean; the interesting failure
- * mode is a constructor or a `setup()` that reads `document` on the way to
- * deciding there is nothing to do.
+ * The favicon tests merged into `controller.test.ts`; this one could not, and
+ * that is the point of it — it is the only place in the package where a factory
+ * is *called* with no DOM at all.
+ *
+ * Calling is stronger than importing: a bare import only proves the module body
+ * is clean, while the interesting failure mode is a constructor or a `setup()`
+ * that reads `document` on the way to deciding there is nothing to do.
  */
 import { clearAllSingletons } from "@ailura/alpinejs-core/singletons";
 import { afterEach, describe, expect, test } from "vite-plus/test";
