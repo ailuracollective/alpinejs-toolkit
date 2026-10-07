@@ -1,49 +1,11 @@
 name: Contribution policy
 
-# The three published gates, adopted by path at the `v1` tag. Nothing here checks out the code under
-# review: these actions read pull request metadata, so the head never reaches a runner holding a token.
-# That is also why this workflow has no fork skip, unlike the hub's own self-validation, which must
-# run `uses: ./` and therefore does need one.
-#
-# The status comment below is the one thing here that does write, and a fork pull request cannot get
-# it: GitHub does not pass repository secrets to a fork, so `AILURA_KITTY_TOKEN` arrives empty, the
-# report falls back to the read-only `github-actions[bot]` token, and the run warns that it will not
-# publish under the wrong identity. The gates are unaffected — the report swallows that failure and
-# the verdict stands — so a fork pull request is still gated and simply has no comment. Adding a
-# fork skip would silence the warning, and would also stop gating fork pull requests, which is a far
-# larger change than a warning is worth.
-#
-# The hub's own `policy.yml` narrows the type sets to seven bare Conventional Commit types
-# (`feat,fix,docs,chore,ci,test,refactor`). This repository does not use those: `.github/labels.yml`
-# declares a `type/*` family, and `type-labels` below lists all five members of it. The values below
-# are therefore the manifest's, not the reference file's.
-#
-# The label vocabulary and the title vocabulary are deliberately different granularities, and the two
-# are read by different checks. The title gate accepts the twelve Conventional Commit types, because
-# release-please parses the squashed commit and the body-structure gate resolves a template from the
-# title's type. The label gate accepts five coarser `type/*` labels. A `ci` pull request therefore
-# carries the label `type/task` while its title reads `ci(scope): ...`, and no gate objects.
-#
-# The corollary is that a label does not carry the title's type, so no `type/*` label marks a breaking
-# change. The breaking signal lives in the commit itself — `!` or a `BREAKING CHANGE:` footer — which
-# is what release-please reads. See CONTRIBUTING.md.
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
   issues:
     types: [opened]
 
-# `labeled` and `unlabeled` stay in the trigger, and they are load-bearing: the type-label gate and
-# the `status/ready` gate are both label-driven, so a pull request that gains or loses its type
-# label has to be re-checked, and no later event would notice it had changed.
-#
-# GitHub sends `pull_request` label events for CLOSED pull requests too, and release-please
-# rewrites its own labels after the merge. Pull request #12 was merged at 05:46:40, `autorelease:
-# pending` was removed at 05:46:54 and `autorelease: tagged` was applied at 05:46:55, which fired
-# two more runs of both jobs below against a pull request that could no longer be gated: its head
-# ref is gone, its checks are final, and a red result on it would mean nothing. Nothing about a
-# closed pull request is still true, so both jobs are guarded on `state` below rather than the
-# trigger dropping the label events.
 permissions: {}
 
 concurrency:
@@ -53,53 +15,19 @@ concurrency:
 jobs:
   branch-validation:
     name: Branch name
-    # `state == 'open'`, because `labeled` on a merged pull request is still an event and the head
-    # ref it names no longer exists.
     if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      # Reads nothing from the API, so an empty permission set is correct here, not a shortcut.
       - uses: ailuracollective/actions/branch-validation@v2
         with:
-          # Eleven, not twelve. `breaking-change` is the twelfth Conventional Commit type but it is not
-          # a branch segment: it describes the commit, not the shape of the work, and the commit
-          # already carries it as `!` or a `BREAKING CHANGE:` footer. The reference set is the same
-          # eleven the previous hand-rolled regex accepted.
           branch-types: feat,fix,chore,docs,style,refactor,perf,test,build,ci,revert
-          # `dependabot[bot]` is exempt here as well as below. The reference file exempts dependabot
-          # from the PR gate but not from the branch gate, which is unreachable: dependabot's head
-          # refs are `dependabot/pnpm/<pkg>-<version>` and carry no type segment, so every one of its
-          # pull requests would fail the name check regardless of what the PR gate does.
-          #
-          # The maintainer is deliberately NOT in this list. Self-approval is handled by the
-          # `master` ruleset's bypass actor instead, which lets them merge their own pull request
-          # without turning off the contribution gates for every pull request they open.
-          #
-          # `AiluraKitty` is the account `RELEASE_PLEASE_TOKEN` belongs to, and therefore the author
-          # of every pull request release-please opens. Those pull requests cannot pass this gate by
-          # construction: their head ref is `release-please--branches--master`, which has no type
-          # segment, and their body is a generated changelog with no linked issue. The exemption is
-          # safe here because that account is a machine identity — it is not used to open pull
-          # requests by hand, so nothing a person wrote is exempted by it.
           skip-actors: 'dependabot[bot], AiluraKitty'
-          # The status comment is on, which `v2` does not do for this action by default: branch
-          # validation reads nothing from the API and exists so a consumer can validate a branch
-          # name while granting no permissions at all, so the comment is opt-in here and declared.
-          #
-          # `comment-token` is a write-scoped personal access token belonging to `AiluraKitty`, and
-          # it is the ONLY token here that can write: the job still grants `permissions: {}`, and
-          # the check itself never sees this token. `comment-author` is left at its default of
-          # `AiluraKitty` because that is who the token belongs to — the report reads the identity
-          # with `gh api user` and refuses to publish under any other, so if the token is ever
-          # replaced by one belonging to another account this comment silently stops appearing and
-          # `comment-author` has to move with it.
           enable-status-comment: true
           comment-token: ${{ secrets.AILURA_KITTY_TOKEN }}
 
   pull-request-policy:
     name: Pull request policy
-    # Same guard as the branch-name job above, for the same reason.
     if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
     permissions:
@@ -108,53 +36,19 @@ jobs:
     steps:
       - uses: ailuracollective/actions/pull-request@v2
         with:
-          # Mirrors `.github/labels.yml`. That file is a manifest and is not read by any workflow, so
-          # this list and the manifest are two records of the same set: change one, mirror the other.
           type-labels: type/feature,type/bug,type/documentation,type/improvement,type/task
-          # The title vocabulary, declared separately because it is a different set of a different
-          # size. `title-types` feeds the title grammar and the template resolution; `type-labels`
-          # feeds only the label check. Without the second input the action would have to read the
-          # label set for all three, and neither value works: `type/feature` would demand a literal
-          # `type/feature:` subject and reject every `feat:` title, while bare names would name
-          # labels this repository does not carry.
-          #
-          # The eleven here are the `branch-types` above plus `breaking-change`, which is not a branch
-          # segment but is a legitimate title type.
           title-types: feat,fix,chore,docs,style,refactor,perf,test,build,ci,revert,breaking-change
           title-min: 15
           title-max: 72
           approved-label: status/ready
-          # `AiluraKitty` opens release-please's pull requests. They satisfy none of the five checks
-          # here and cannot be made to: no issue is linked, the only label release-please applies is
-          # its own `autorelease: pending`, and the body is a generated changelog rather than the
-          # template for any type. The action reports an exempt pull request as skipped rather than
-          # passed, which is the honest outcome.
-          #
-          # The exemption covers the whole action, not one check — the action has no per-check or
-          # per-label escape hatch. Narrowing it to individual checks is not possible with this
-          # action, so the trade is accepted: nothing authored by a person runs through this account.
           skip-actors: 'dependabot[bot], AiluraKitty'
-          # The status comment is on, and declared even though `v2` defaults it on for this action,
-          # because the default would publish as `github-actions[bot]` — the account the workflow's
-          # own token belongs to — which the report refuses to do. Declaring it keeps the intent
-          # visible next to the inputs that make it work.
-          #
-          # `comment-token` is what makes it work, and the reason this job's permissions do not
-          # widen: the write happens with a personal access token, not with the job's. The five
-          # checks keep reading with `github-token` and the two reads they always had; nothing
-          # write-scoped is handed to a check script.
           enable-status-comment: true
           comment-token: ${{ secrets.AILURA_KITTY_TOKEN }}
-          # `comment-author` is left at its default of `AiluraKitty` because that is who
-          # `AILURA_KITTY_TOKEN` belongs to. The report reads the token's own identity and refuses
-          # to publish under any other, so this comment and `comment-author` have to move together
-          # if the token is ever rotated to a different account.
 
   triage:
     name: Issue triage
     if: github.event_name == 'issues'
     runs-on: ubuntu-latest
-    # The only job that writes, and the only grant of `issues: write` in this repository.
     permissions:
       issues: write
     steps:
