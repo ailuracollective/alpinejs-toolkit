@@ -34,7 +34,7 @@
   "packages/virtual": "0.1.1",
   "packages/query": "0.2.0",
   "packages/query-adapter-alpine": "0.1.1",
-  "packages/query-adapter-zustand": "0.1.1",
+  "packages/query-adapter-zustand": "0.2.0",
   "packages/query-adapter-nanostores": "0.1.1",
   "packages/json-api": "0.1.1"
 }
