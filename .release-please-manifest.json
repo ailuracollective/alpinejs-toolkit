@@ -21,7 +21,7 @@
   "packages/geo": "0.1.1",
   "packages/lang": "0.1.0",
   "packages/accordion": "0.1.0",
-  "packages/tabs": "0.1.1",
+  "packages/tabs": "0.2.0",
   "packages/dialog": "0.2.0",
   "packages/menu": "0.1.0",
   "packages/tooltip": "0.1.1",
