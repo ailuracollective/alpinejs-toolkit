@@ -101,6 +101,72 @@ salta a un valor fijo y deja de seguir al SO. Usa `set("dark")` si quieres aband
 sistema a propósito.
 :::
 
+## Favicon según el tema
+
+`createThemeFaviconController` mantiene el icono del navegador apuntando al
+tema que la página está mostrando de verdad. Funciona con Alpine o sin él: lee
+`resolved` de un `ThemeController`, nunca del store.
+
+### Cuando el icono solo sigue al SO
+
+Escribe dos links en la plantilla y listo. Sin JavaScript, correcto antes de que
+el bundle se analice, y el navegador reevalúa la media query por su cuenta:
+
+```html
+<link
+  rel="icon"
+  href="/favicon-light.svg"
+  media="(prefers-color-scheme: light)"
+  type="image/svg+xml"
+/>
+<link
+  rel="icon"
+  href="/favicon-dark.svg"
+  media="(prefers-color-scheme: dark)"
+  type="image/svg+xml"
+/>
+```
+
+### Cuando la aplicación manda sobre el SO
+
+Si `current` puede ser un `light`/`dark` explícito, ninguna media query
+expresa "claro aunque la máquina esté en oscuro": sigue `resolved` en su lugar:
+
+```ts
+import { createThemeController, createThemeFaviconController } from "@ailura/alpinejs-theme";
+
+const theme = createThemeController();
+
+const favicon = createThemeFaviconController({
+  theme, // opcional — por defecto, el controller singleton del paquete
+  light: "/favicon-light.svg",
+  dark: "/favicon-dark.svg",
+  type: "image/svg+xml",
+});
+
+favicon.destroy(); // se desuscribe y elimina el <link> que creó
+```
+
+El tema inicial se aplica al momento, y cada `change` posterior reapunta el
+mismo link. Llama a `favicon.apply()` cuando un router de cliente reemplace
+`<head>`.
+
+| Opción     | Por defecto               | Efecto                                        |
+| ---------- | ------------------------- | --------------------------------------------- |
+| `light`    | obligatoria               | Icono mientras `resolved` es `light`          |
+| `dark`     | obligatoria               | Icono mientras `resolved` es `dark`           |
+| `strategy` | `"theme"`                 | `"media"` escribe los dos links del navegador |
+| `theme`    | `createThemeController()` | Origen de `resolved`; se ignora con `"media"` |
+| `type`     | sin valor                 | Atributo `type` del link                      |
+| `sizes`    | sin valor                 | Atributo `sizes` del link                     |
+| `target`   | `document.head`           | Dónde se añade el link; `null` lo deja inerte |
+
+El controlador añade su propio `<link rel="icon">` y lo recuerda **por
+referencia**: los iconos ajenos del head nunca se leen, se reescriben ni se
+eliminan, y `destroy()` solo se lleva lo que creó. Cada link propio lleva un
+atributo `data-theme-favicon` para depurar. No se añade ningún parámetro
+anti-caché — el razonamiento y la alternativa están en el README del paquete.
+
 ## Opciones del plugin
 
 ```ts

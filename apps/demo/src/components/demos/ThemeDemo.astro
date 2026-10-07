@@ -61,6 +61,31 @@ const PERSIST_CODE = `<!-- The three things the package brings and a hand-rolled
         and the theme would look like it resets on navigation. That is why the
         plugin is registered with reapplyEvents: ['astro:after-swap'], which
         calls apply() — the forced write that ignores the "already applied". -->`;
+const FAVICON_CODE = `<!-- Two strategies, and picking between them is a product
+     decision rather than an implementation detail. -->
+
+<!-- 'media' — when the icon should just follow the OS. Write this in the
+     template and stop: no JavaScript, correct before the bundle parses, and
+     the browser re-evaluates the media query on its own.
+
+     <link rel="icon" href="/favicon-light.svg" media="(prefers-color-scheme: light)" type="image/svg+xml">
+     <link rel="icon" href="/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml"> -->
+
+<!-- 'theme' — when the app can override the OS, which no media query can
+     express ("light even on a dark machine"). The buttons below run this, and
+     the readouts show what the controller actually wrote into <head>.
+
+     No 'theme' option: createThemeFaviconController() falls back to
+     createThemeController(), the same singleton the plugin registered. -->
+
+const favicon = createThemeFaviconController({
+  light: "/favicon-light.svg",
+  dark: "/favicon-dark.svg",
+  type: "image/svg+xml",
+});
+
+favicon.destroy(); // host-owned: unsubscribes, removes its own <link>`;
+
 // ──
 ---
 
@@ -156,6 +181,52 @@ const PERSIST_CODE = `<!-- The three things the package brings and a hand-rolled
 				<code>current</code> is your choice (<code>light</code> / <code>dark</code> /
 				<code>system</code>), <code>system</code> is what the OS reports, and
 				<code>resolved</code> is the combination — the value actually applied.
+			</p>
+		</div>
+	</DemoExample>
+
+	<DemoExample
+		title="The favicon follows the same theme — and lives in &lt;head&gt;, not on the page"
+		note="The page and the tab icon are two separate surfaces, so the package owns two: it appends its own icon link, follows <code>resolved</code>, and removes only what it created when you release it. The readouts below are read back out of the DOM, not from a copy the demo kept."
+		code={FAVICON_CODE}
+	>
+		<!-- x-effect re-reads the DOM whenever the resolved theme moves. The
+		     controller updates the link on its own; without this the readouts
+		     would sit still while the tab icon changed, which reads as a bug. -->
+		<div
+			class="space-y-3"
+			x-data="themeFaviconDemo"
+			x-effect="$store.theme.resolved; sync()"
+			data-testid="theme-favicon"
+		>
+			<div class="flex flex-wrap gap-2">
+				<DemoButton data-testid="theme-favicon-attach" @click="attach()">Follow the theme</DemoButton>
+				<DemoButton variant="ghost" data-testid="theme-favicon-release" @click="release()">destroy()</DemoButton>
+			</div>
+			<ul class="list-disc space-y-1 pl-5 text-sm">
+				<li>
+					Icon href in <code>&lt;head&gt;</code>:
+					<strong data-testid="theme-favicon-href" x-text="href"></strong>
+				</li>
+				<li>
+					Links the controller owns:
+					<strong data-testid="theme-favicon-owned" x-text="owned"></strong>
+					— counted with <code>link[data-theme-favicon]</code>, never
+					<code>link[rel="icon"]</code>, so the host's own icon links are out of scope
+				</li>
+				<li>Controller <code>resolved</code>: <strong x-text="resolved"></strong> — matches <code>$store.theme.resolved</code>, which is <strong x-text="$store.theme.resolved"></strong></li>
+			</ul>
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				Press <strong>Follow the theme</strong>, then use the Light / Dark / System buttons
+				at the top of this page and watch the tab icon. Set an <em>explicit</em>
+				<code>light</code> while your OS is dark and the icon stays light: that is the
+				case a <code>media="(prefers-color-scheme: …)"</code> pair cannot express, and the
+				reason the theme strategy is the default.
+			</p>
+			<p class="text-xs text-[var(--ios-label-secondary)]">
+				Nothing else is touched — no <code>apple-touch-icon</code>, no cache-busting
+				parameter, and no Alpine directive. The module imports nothing from Alpine at all,
+				so a page with no framework gets the same behavior.
 			</p>
 		</div>
 	</DemoExample>
