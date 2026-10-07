@@ -11,6 +11,7 @@ import { registerQueryNanostoresDemo } from "./query-nanostores-demo.js";
 import { registerQueryZustandDemo } from "./query-zustand-demo.js";
 import { registerSelectionDemo } from "./selection-demo.js";
 import { registerToastSonner } from "./sonner-demo.js";
+import { registerThemeFaviconDemo } from "./theme-favicon-demo.js";
 
 /** Registers the Alpine.data modules and window handlers used by the demos. */
 export function registerDemoDataModules(Alpine: AlpineInstance): void {
@@ -25,6 +26,7 @@ export function registerDemoDataModules(Alpine: AlpineInstance): void {
   registerCommandDemo(Alpine);
   registerSelectionDemo(Alpine);
   registerCoreDemo(Alpine);
+  registerThemeFaviconDemo(Alpine);
   registerDemoShell(Alpine);
   registerToastDemoHandlers(Alpine);
   registerToastSonner(Alpine);

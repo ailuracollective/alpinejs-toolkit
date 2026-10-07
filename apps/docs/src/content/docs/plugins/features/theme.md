@@ -99,6 +99,72 @@ it jumps to a fixed value and stops following the OS. Use `set("dark")` if you w
 leave the system behind deliberately.
 :::
 
+## Theme-aware favicon
+
+`createThemeFaviconController` keeps the browser icon pointed at the theme the
+page is actually showing. It works with or without Alpine — it reads
+`resolved` from a `ThemeController`, never from the store.
+
+### When the icon only follows the OS
+
+Write two links in your template and stop. No JavaScript, correct before the
+bundle parses, and the browser re-evaluates the media query on its own:
+
+```html
+<link
+  rel="icon"
+  href="/favicon-light.svg"
+  media="(prefers-color-scheme: light)"
+  type="image/svg+xml"
+/>
+<link
+  rel="icon"
+  href="/favicon-dark.svg"
+  media="(prefers-color-scheme: dark)"
+  type="image/svg+xml"
+/>
+```
+
+### When the app overrides the OS
+
+If `current` can be an explicit `light`/`dark`, no media query can express
+"light even on a dark machine" — so follow `resolved` instead:
+
+```ts
+import { createThemeController, createThemeFaviconController } from "@ailura/alpinejs-theme";
+
+const theme = createThemeController();
+
+const favicon = createThemeFaviconController({
+  theme, // optional — defaults to the package's singleton controller
+  light: "/favicon-light.svg",
+  dark: "/favicon-dark.svg",
+  type: "image/svg+xml",
+});
+
+favicon.destroy(); // unsubscribes and removes the <link> it created
+```
+
+The initial theme is applied immediately, then every later `change` event
+re-points the same link. Call `favicon.apply()` after a client-side router
+replaces `<head>`.
+
+| Option     | Default                   | Effect                                        |
+| ---------- | ------------------------- | --------------------------------------------- |
+| `light`    | required                  | Icon while `resolved` is `light`              |
+| `dark`     | required                  | Icon while `resolved` is `dark`               |
+| `strategy` | `"theme"`                 | `"media"` writes the two browser-scoped links |
+| `theme`    | `createThemeController()` | Source of `resolved`; ignored under `"media"` |
+| `type`     | unset                     | `type` attribute on the link                  |
+| `sizes`    | unset                     | `sizes` attribute on the link                 |
+| `target`   | `document.head`           | Where the link is appended; `null` is inert   |
+
+The controller appends its own `<link rel="icon">` and remembers it **by
+reference**: unrelated icons in the head are never read, rewritten or removed,
+and `destroy()` takes only what it created. Each owned link carries a
+`data-theme-favicon` attribute for debugging. No cache-busting parameter is
+added — see the package README for the reasoning and the opt-out.
+
 ## Plugin options
 
 ```ts

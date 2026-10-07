@@ -101,35 +101,40 @@ body {
 
 ### Exports
 
-| Export                           | Description                                                                                          | Type       |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------- |
-| `ThemeController`                | Framework-agnostic controller — owns the preference graph, the DOM handle, storage and the observers | `class`    |
-| `createThemeController`          | `createThemeController(options?) => ThemeController`; a **singleton per scope**, already `mount()`ed | `function` |
-| `themePlugin`                    | `Alpine.plugin()` factory — registers `$store.theme` + `$theme`                                      | `function` |
-| `createThemeStore`               | `(manager, release?) => ThemeStore` — the store projection, exported for a hand-rolled boot          | `function` |
-| `createLocalStorageThemeStorage` | `localStorage` adapter under key `"theme"`, cross-tab by default. `{ key?, crossTab? }`              | `function` |
-| `createMemoryThemeStorage`       | In-memory adapter, `initial` preference defaults to `null`. No cross-tab, no persistence             | `function` |
-| `createSystemObserver`           | `(listener) => unsubscribe` on `(prefers-color-scheme: dark)`; a no-op unsubscribe on the server     | `function` |
-| `readSystemTheme`                | `'light' \| 'dark'` from `matchMedia` right now. `'light'` when `matchMedia` is missing              | `function` |
-| `isThemePreference`              | Type guard: `value is ThemePreference`                                                               | `function` |
-| `coerceThemePreference`          | `(value, fallback) => ThemePreference` — anything unrecognised becomes `fallback`                    | `function` |
-| `defaultThemePreference`         | `() => 'system'`                                                                                     | `function` |
-| `resolveTheme`                   | `(current, system) => ResolvedTheme` — `system ? system : current`                                   | `function` |
-| `toThemeEvent`                   | `('light'\|'dark'\|'system') => 'SET_LIGHT'\|'SET_DARK'\|'SET_SYSTEM'`                               | `function` |
-| `ThemePreference`                | `'light' \| 'dark' \| 'system'` — the explicit choice                                                | `type`     |
-| `ResolvedTheme`                  | `'light' \| 'dark'` — what is actually applied                                                       | `type`     |
-| `ThemeDomStrategy`               | `'class' \| 'attribute' \| 'none'`                                                                   | `type`     |
-| `ThemeState`                     | `{ current, system, resolved }`                                                                      | `type`     |
-| `ThemeChangeDetail`              | `ThemeState & { source, previous }`                                                                  | `type`     |
-| `ThemeChangeSource`              | `'initialization' \| 'user' \| 'system' \| 'storage' \| 'reset'`                                     | `type`     |
-| `ThemeEvents`                    | Event map — a single `change` event                                                                  | `type`     |
-| `ThemeListener`                  | `(detail: ThemeChangeDetail) => void`                                                                | `type`     |
-| `ThemeEvent`                     | `'SET_LIGHT' \| 'SET_DARK' \| 'SET_SYSTEM'` — the machine's events, not a public API                 | `type`     |
-| `ThemeStorage`                   | `SubscribableStorageAdapter<ThemePreference>` from `@ailura/alpinejs-ui`; `subscribe` is optional    | `type`     |
-| `ThemeStore`                     | The `$store.theme` surface (see below)                                                               | `type`     |
-| `CreateThemeOptions`             | Every option (see below)                                                                             | `type`     |
-| `DomApplyHandle`                 | `{ apply(resolved, force?), destroy() }` — what `createDomHandle` returns                            | `type`     |
-| `ThemePluginCallback`            | `Alpine.plugin()` callback signature                                                                 | `type`     |
+| Export                           | Description                                                                                                      | Type                                      |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `ThemeController`                | Framework-agnostic controller — owns the preference graph, the DOM handle, storage and the observers             | `class`                                   |
+| `createThemeController`          | `createThemeController(options?) => ThemeController`; a **singleton per scope**, already `mount()`ed             | `function`                                |
+| `createThemeFaviconController`   | `createThemeFaviconController(options) => ThemeFaviconController`, already `mount()`ed — the favicon integration | `function`                                |
+| `ThemeFaviconController`         | Owns its `<link rel="icon">` elements, follows `resolved`, releases both on `destroy()`                          | `class`                                   |
+| `THEME_FAVICON_ATTRIBUTE`        | `"data-theme-favicon"` — the marker attribute on every link this package owns                                    | `const`                                   |
+| `themePlugin`                    | `Alpine.plugin()` factory — registers `$store.theme` + `$theme`                                                  | `function`                                |
+| `createThemeStore`               | `(manager, release?) => ThemeStore` — the store projection, exported for a hand-rolled boot                      | `function`                                |
+| `createLocalStorageThemeStorage` | `localStorage` adapter under key `"theme"`, cross-tab by default. `{ key?, crossTab? }`                          | `function`                                |
+| `createMemoryThemeStorage`       | In-memory adapter, `initial` preference defaults to `null`. No cross-tab, no persistence                         | `function`                                |
+| `createSystemObserver`           | `(listener) => unsubscribe` on `(prefers-color-scheme: dark)`; a no-op unsubscribe on the server                 | `function`                                |
+| `readSystemTheme`                | `'light' \| 'dark'` from `matchMedia` right now. `'light'` when `matchMedia` is missing                          | `function`                                |
+| `isThemePreference`              | Type guard: `value is ThemePreference`                                                                           | `function`                                |
+| `coerceThemePreference`          | `(value, fallback) => ThemePreference` — anything unrecognised becomes `fallback`                                | `function`                                |
+| `defaultThemePreference`         | `() => 'system'`                                                                                                 | `function`                                |
+| `resolveTheme`                   | `(current, system) => ResolvedTheme` — `system ? system : current`                                               | `function`                                |
+| `toThemeEvent`                   | `('light'\|'dark'\|'system') => 'SET_LIGHT'\|'SET_DARK'\|'SET_SYSTEM'`                                           | `function`                                |
+| `ThemePreference`                | `'light' \| 'dark' \| 'system'` — the explicit choice                                                            | `type`                                    |
+| `ResolvedTheme`                  | `'light' \| 'dark'` — what is actually applied                                                                   | `type`                                    |
+| `ThemeDomStrategy`               | `'class' \| 'attribute' \| 'none'`                                                                               | `type`                                    |
+| `ThemeState`                     | `{ current, system, resolved }`                                                                                  | `type`                                    |
+| `ThemeChangeDetail`              | `ThemeState & { source, previous }`                                                                              | `type`                                    |
+| `ThemeChangeSource`              | `'initialization' \| 'user' \| 'system' \| 'storage' \| 'reset'`                                                 | `type`                                    |
+| `ThemeEvents`                    | Event map — a single `change` event                                                                              | `type`                                    |
+| `ThemeListener`                  | `(detail: ThemeChangeDetail) => void`                                                                            | `type`                                    |
+| `ThemeEvent`                     | `'SET_LIGHT' \| 'SET_DARK' \| 'SET_SYSTEM'` — the machine's events, not a public API                             | `type`                                    |
+| `ThemeStorage`                   | `SubscribableStorageAdapter<ThemePreference>` from `@ailura/alpinejs-ui`; `subscribe` is optional                | `type`                                    |
+| `ThemeStore`                     | The `$store.theme` surface (see below)                                                                           | `type`                                    |
+| `CreateThemeOptions`             | Every option (see below)                                                                                         | `type`                                    |
+| `CreateThemeFaviconOptions`      | Every favicon option (see below)                                                                                 | `type`                                    |
+| `ThemeFaviconStrategy`           | `'theme'                                                                                                         | 'media'` — who decides which icon applies | `type` |
+| `DomApplyHandle`                 | `{ apply(resolved, force?), destroy() }` — what `createDomHandle` returns                                        | `type`                                    |
+| `ThemePluginCallback`            | `Alpine.plugin()` callback signature                                                                             | `type`                                    |
 
 `DEFAULT_THEME_STORE_KEY` and `DEFAULT_THEME_MAGIC_KEY` both hold `"theme"`, but
 they are **not** re-exported from the barrel — see Limitations.
@@ -297,6 +302,129 @@ const theme = createThemeController({ storage: cookieStorage });
 `createMemoryThemeStorage(initial?)` is the batteries-included option for tests
 and for a page that should forget on reload.
 
+## Theme-aware favicons
+
+`createThemeFaviconController` keeps `<link rel="icon">` pointed at the theme the
+application is actually showing. There are two strategies, and choosing between
+them is a product decision rather than an implementation detail.
+
+| Situation                                                                   | Strategy            | JavaScript                    |
+| --------------------------------------------------------------------------- | ------------------- | ----------------------------- |
+| The icon should follow the OS — and the page's theme does too               | `'media'`           | none once the two links exist |
+| The app can override the OS, so `current` may be an explicit `light`/`dark` | `'theme'` (default) | one `change` subscription     |
+
+### `media` — native, and no JavaScript
+
+```html
+<link
+  rel="icon"
+  href="/favicon-light.svg"
+  media="(prefers-color-scheme: light)"
+  type="image/svg+xml"
+/>
+<link
+  rel="icon"
+  href="/favicon-dark.svg"
+  media="(prefers-color-scheme: dark)"
+  type="image/svg+xml"
+/>
+```
+
+That is the whole mechanism, and it is better than anything this package can
+offer: the browser picks by media query, re-evaluates it when the OS changes,
+and is right before the bundle has parsed. Write it in your template and you are
+done.
+
+`createThemeFaviconController({ strategy: "media", light, dark })` writes exactly
+that markup from JavaScript, which is worth it when the `<head>` is generated.
+It subscribes to nothing, constructs no controller, and ignores a `theme` option
+you pass it.
+
+### `theme` — follows `resolved`
+
+```ts
+import { createThemeController, createThemeFaviconController } from "@ailura/alpinejs-theme";
+
+const theme = createThemeController();
+
+const favicon = createThemeFaviconController({
+  theme, // optional — defaults to createThemeController(), the package singleton
+  light: "/favicon-light.svg",
+  dark: "/favicon-dark.svg",
+  type: "image/svg+xml", // optional
+});
+
+favicon.destroy(); // unsubscribes from 'change' and removes its own <link>
+```
+
+One link, re-pointed at `theme.resolved`. Note what it does **not** read:
+`prefers-color-scheme`. An explicit `light` preference on a dark OS has to keep
+the light icon, and no media query can express that — which is exactly why
+`'theme'` is the default and why a favicon that silently follows the OS while
+the page does not is worse than no favicon at all.
+
+The initial value is applied inside the factory, not on the next `change`, so the
+icon is correct the moment the call returns — the same reason
+`createThemeController` mounts rather than waiting.
+
+### Options
+
+```ts
+type CreateThemeFaviconOptions = {
+  light: string; // required
+  dark: string; // required
+  strategy?: "theme" | "media"; // default 'theme'
+  theme?: ThemeController; // default createThemeController() — 'theme' strategy only
+  type?: string; // e.g. 'image/svg+xml'
+  sizes?: string; // e.g. 'any'
+  target?: HTMLHeadElement | null; // default document.head; null is inert
+};
+```
+
+| Option     | Default                   | Effect                                                                       |
+| ---------- | ------------------------- | ---------------------------------------------------------------------------- |
+| `light`    | — required                | The icon while `resolved` is `'light'`                                       |
+| `dark`     | — required                | The icon while `resolved` is `'dark'`                                        |
+| `strategy` | `'theme'`                 | `'theme'` follows `resolved`; `'media'` writes two browser-scoped links      |
+| `theme`    | `createThemeController()` | Read in `setup()`, so a never-mounted controller never creates one           |
+| `type`     | unset                     | `type` attribute, when present                                               |
+| `sizes`    | unset                     | `sizes` attribute, when present                                              |
+| `target`   | `document.head`           | Resolved lazily, so a client-side mount after a server render still finds it |
+
+### API
+
+| Member      | Description                                                                                                        |
+| ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| `strategy`  | `'theme'` or `'media'` — the one passed in                                                                         |
+| `resolved`  | What the link points at right now; `null` under `'media'`, where the browser decides                               |
+| `links`     | The `<link>` elements this controller appended, in order                                                           |
+| `apply()`   | Re-point the link at `resolved` now, forcing the write. Re-appends if the head was replaced. No-op under `'media'` |
+| `destroy()` | Unsubscribe, remove the owned links, and reset `resolved`/`links` to empty. Idempotent                             |
+| `lifecycle` | `'idle' \| 'mounted' \| 'destroyed'`, from `BaseController`                                                        |
+
+### Ownership
+
+The controller appends its own links and remembers them **by reference**. It
+never reads, rewrites or removes an unrelated `<link rel="icon">`, and
+`destroy()` cannot take a host's icon with it. Each owned link also carries
+`data-theme-favicon` — useful in devtools and for host CSS, not for cleanup.
+
+Links are **appended**, not injected in place: browsers prefer the last matching
+icon, so ours wins while the host's own declaration stays in the markup.
+
+### Caching
+
+The controller writes `href` and nothing else. There is no cache-busting query
+parameter, and that is a decision rather than an oversight: browsers re-request
+a favicon when its URL changes, and an unconditional `?v=` would add a network
+request per theme flip to solve a problem nobody had. If a specific browser does
+show you a stale icon, version the URLs you pass in — that is the honest fix,
+because it is visible in the markup:
+
+```ts
+createThemeFaviconController({ light: "/favicon-light.svg?v=2", dark: "/favicon-dark.svg?v=2" });
+```
+
 ## SSR
 
 > SSR-safe — no `window`/`document` at import time. `matchMedia` goes through
@@ -310,9 +438,15 @@ two SSR requests never share a controller.
 
 ## Limitations
 
-- **The declared budget is not met.** `.size-limit.json` says `2 kB`; the
-  build gzips to `2.08 kB` (`5.71 kB` raw). The budget has not been raised and
-  is reported here rather than papered over.
+- **The favicon is not the first icon.** It appends, so it wins in
+  browsers that pick the last matching `<link rel="icon">`, but a host that
+  appends _after_ `mount()`, or a bundler that injects one at runtime, will
+  still win. Nothing here replaces an existing icon by design.
+- **`destroy()` on the favicon is host-owned.** Like `$theme.destroy()`, nothing
+  calls it for you — a page that never unmounts should never call it, and a
+  test or an SPA route that does should.
+- **Only `rel="icon"`.** `apple-touch-icon`, `mask-icon` and `shortcut icon`
+  are not managed; declare those yourself.
 - **`DEFAULT_THEME_STORE_KEY` and `DEFAULT_THEME_MAGIC_KEY` are not exported.**
   They are declared in `types.ts` and used by `plugin.ts`, but the barrel only
   re-exports _types_ from `./types`, so `import { DEFAULT_THEME_STORE_KEY } from
@@ -347,7 +481,11 @@ two SSR requests never share a controller.
 
 ## Size
 
-`5.71 kB raw / 2.08 kB gzip` · budget `2 kB` — **the build exceeds the declared budget** · externalized peers: `alpinejs`, `@ailura/alpinejs-core`, `@ailura/alpinejs-state-machine`, `@ailura/alpinejs-ui` · `size-limit` + `publint` + `attw` verified.
+`7.30 kB raw / 2.56 kB gzip / 2.29 kB brotli` · budget `2.7 kB` · externalized peers: `alpinejs`, `@ailura/alpinejs-core`, `@ailura/alpinejs-state-machine`, `@ailura/alpinejs-ui` · `size-limit` + `publint` + `attw` verified.
+
+The budget moved with the favicon work: the feature costs `~460 B` gzipped on
+the full surface, and the budget went from `2.1 kB` to `2.7 kB` rather than
+being quietly raised to whatever the build happened to weigh.
 
 ## Architecture
 

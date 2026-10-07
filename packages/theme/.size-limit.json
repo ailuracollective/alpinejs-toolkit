@@ -3,7 +3,7 @@
     "name": "theme full surface",
     "path": "dist/index.mjs",
     "import": "*",
-    "limit": "2.1 kB",
+    "limit": "2.7 kB",
     "ignore": [
       "alpinejs",
       "@ailura/alpinejs-core",
