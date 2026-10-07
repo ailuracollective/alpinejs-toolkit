@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-query",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "TanStack Query style cache for Alpine.js — staleTime, retries and adapter-ready store on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",
