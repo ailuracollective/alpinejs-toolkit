@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-tabs",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Alpine.js headless accessible tabs store — horizontal/vertical orientation, arrow-key navigation, roving tabindex and ARIA helpers on @ailura/alpinejs-core. Moves state, not focus.",
   "keywords": [
     "accessibility",

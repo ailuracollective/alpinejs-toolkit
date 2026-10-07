@@ -1,6 +1,6 @@
 {
   "name": "@ailura/alpinejs-json-api",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Alpine.js JSON:API client — schema-typed fetch, sparse fieldsets, includes and relationship helpers on @ailura/alpinejs-core.",
   "keywords": [
     "alpine",
