@@ -1,29 +1,6 @@
 version: 2
 
 updates:
-  # Dependabot reads each `uses:` pin, compares it against the latest tag, and opens a pull request
-  # when they differ. That covers composite actions inside this repository too, so the pins in
-  # `.github/actions/setup-workspace/action.yml` are maintained by this entry like any other.
-  #
-  # NO WORKFLOW IN THIS REPOSITORY PINS BY COMMIT SHA. Every `uses:` is a moving tag. The complete
-  # set, as of the one bootstrap refactor:
-  #
-  #   actions/checkout@v7                 ci.yml, publish.yml
-  #   pnpm/action-setup@v6                .github/actions/setup-workspace/action.yml
-  #   actions/setup-node@v7               .github/actions/setup-workspace/action.yml
-  #   actions/cache/restore@v6, actions/cache/save@v6   ci.yml
-  #   googleapis/release-please-action@v4 release-please.yml
-  #   ailuracollective/actions/*@v1        policy.yml
-  #
-  # This file used to claim the opposite, that `ci.yml` pinned by sha and only `policy.yml` did not,
-  # and reasoned at length about the weaker pin as a deliberate exception. That was simply wrong: it
-  # inventoried a risk that does not exist and left the one that does unstated.
-  #
-  # The real posture, stated plainly: an owner of any of these actions, or of the `v1` tag, can change
-  # what runs in this repository without a review here. `ailuracollective/actions/triage@v1` holds
-  # `issues: write`, so that one is the sharpest edge. Moving to sha pins is the fix; it is not done
-  # in the same breath as this comment because a dependabot PR that rewrites five workflows' pins
-  # needs to be reviewed on its own, not smuggled in with a tidy-up.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -37,9 +14,6 @@ updates:
     labels:
       - type/task
     groups:
-      # `checkout` is grouped on its own so that a bump which only moves the checkout stays a
-      # one-file pull request instead of being reviewed alongside every other action bump. It is
-      # the highest-churn pin in the repository and the least likely to be the reason a run broke.
       checkout:
         patterns:
           - actions/checkout
